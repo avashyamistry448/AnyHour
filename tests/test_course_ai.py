@@ -4,7 +4,7 @@ from unittest.mock import patch
 import io
 import json
 
-from course_ai import grading_answer, category_grading_answer, rank_syllabus_pages, rank_materials, _concise_answer, local_answer
+from course_ai import grading_answer, category_grading_answer, rank_syllabus_pages, rank_materials, keyword_answer, local_answer
 
 GRADING_PAGE = """iClicker profile
 Grading Policy
@@ -78,13 +78,17 @@ class ConciseAndDocumentTests(unittest.TestCase):
     def test_category_does_not_override_individual_exam(self):
         self.assertIsNone(category_grading_answer(["Exams: 30%"], "How much is Exam 1 worth?"))
 
-    def test_thinking_tags_are_not_displayed(self):
-        raw = "<think>Let me reason through the user's request.</think>{\"answer\":\"Exams are worth 30%.\"}"
-        self.assertEqual(_concise_answer(raw), "Exams are worth 30%.")
+    def test_keyword_answer_uses_retrieved_syllabus_line(self):
+        matches = [{"title": "Official Syllabus · page 1",
+                    "answer": "Office Hours: Tuesdays at 2 PM.\\nExtra course information.",
+                    "kind": "official_syllabus"}]
+        result = keyword_answer("When are office hours?", matches)
+        self.assertIn("Tuesdays at 2 PM", result["answer"])
+        self.assertEqual(result["sources"], ["Official Syllabus · page 1"])
 
-    def test_untagged_model_reasoning_never_reaches_chat(self):
-        raw = "Okay, the user is asking about exams. Let me check the evidence."
-        self.assertEqual(_concise_answer(raw), "")
+    def test_keyword_answer_does_not_invent_absent_answer(self):
+        matches = [{"title": "Unrelated notes", "answer": "Safety glasses required in labs.", "kind": "document"}]
+        self.assertIsNone(keyword_answer("What is the exam weight?", matches))
 
     def test_documents_are_searched_beyond_first_2200_characters(self):
         rows = [{"title":"Lab handbook", "kind":"document", "body":"Unrelated material. " * 200 + "Lab reports are due each Friday at 5pm."}]
@@ -102,50 +106,40 @@ class ConciseAndDocumentTests(unittest.TestCase):
 
 
 class OllamaRecoveryTests(unittest.TestCase):
-    def test_plain_text_answer_is_accepted(self):
-        self.assertEqual(_concise_answer("Office hours are Tuesdays at 2 PM."), "Office hours are Tuesdays at 2 PM.")
-
-    def test_json_answer_is_still_accepted(self):
-        self.assertEqual(_concise_answer('{"answer": "Office hours are Tuesdays at 2 PM."}'), "Office hours are Tuesdays at 2 PM.")
-
-    def test_truncated_json_is_not_displayed(self):
-        self.assertEqual(_concise_answer('{"answer": "Office hours'), "")
-
-    def test_ollama_retries_empty_then_responds(self):
+    def test_original_working_plain_text_is_returned(self):
         requests = []
-        replies = [
-            {"message": {"content": '{"answer": "Office hours'}},
-            {"message": {"content": "Office hours are Tuesdays at 2 PM."}},
-        ]
         def fake_urlopen(request, timeout):
             requests.append(json.loads(request.data.decode("utf-8")))
-            return io.BytesIO(json.dumps(replies[len(requests) - 1]).encode("utf-8"))
-
+            return io.BytesIO(b'{"message":{"content":"Office hours are Tuesdays at 2 PM."}}')
+        matches = [{"title": "Official Syllabus · page 1",
+                    "answer": "Office Hours: Tuesdays at 2 PM.",
+                    "kind": "official_syllabus"}]
         with patch("course_ai.urllib.request.urlopen", side_effect=fake_urlopen):
-            answer = local_answer("When are office hours?", [
-                {"title": "Official Syllabus · page 1",
-                 "answer": "Office hours: Tuesdays at 2 PM.",
-                 "kind": "official_syllabus"}
-            ])
-        self.assertEqual(answer["answer"], "Office hours are Tuesdays at 2 PM.")
-        self.assertEqual(answer["mode"], "ollama")
-        self.assertEqual(len(requests), 2)
-        self.assertTrue(all("format" not in item for item in requests))
-        self.assertTrue(all(item["think"] is False for item in requests))
-
-    def test_ollama_answers_first_attempt(self):
-        requests = []
-        def fake_urlopen(request, timeout):
-            requests.append(request)
-            return io.BytesIO(b'{"message":{"content":"The final is worth 25%."}}')
-        with patch("course_ai.urllib.request.urlopen", side_effect=fake_urlopen):
-            answer = local_answer("How much is my final worth?", [
-                {"title": "Official Syllabus · page 5",
-                 "answer": "Final Exam 25%",
-                 "kind": "official_syllabus"}
-            ])
-        self.assertEqual(answer["answer"], "The final is worth 25%.")
+            result = local_answer("When are office hours?", matches)
+        self.assertEqual(result["answer"], "Office hours are Tuesdays at 2 PM.")
+        self.assertEqual(result["mode"], "ollama")
         self.assertEqual(len(requests), 1)
+        self.assertNotIn("format", requests[0])
+
+    def test_offline_keyword_fallback_still_answers(self):
+        from urllib.error import URLError
+        matches = [{"title": "Official Syllabus · page 1",
+                    "answer": "Office Hours: Tuesdays at 2 PM.",
+                    "kind": "official_syllabus"}]
+        with patch("course_ai.urllib.request.urlopen", side_effect=URLError("service down")):
+            result = local_answer("When are office hours?", matches)
+        self.assertIn("Tuesdays at 2 PM", result["answer"])
+        self.assertEqual(result["mode"], "keyword")
+        self.assertEqual(result["sources"], ["Official Syllabus · page 1"])
+
+    def test_no_match_does_not_make_up_course_details(self):
+        from urllib.error import URLError
+        matches = [{"title": "Notes", "answer": "A clean glass beaker is required.", "kind": "document"}]
+        with patch("course_ai.urllib.request.urlopen", side_effect=URLError("service down")):
+            result = local_answer("When is the final exam?", matches)
+        self.assertEqual(result["mode"], "no_match")
+        self.assertNotIn("beaker", result["answer"])
+
 
 
 if __name__ == "__main__":
