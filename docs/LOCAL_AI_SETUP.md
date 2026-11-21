@@ -18,7 +18,7 @@ ClassPoint includes the original professor/student pages. The course assistant n
    python server.py
    ```
 
-4. Open **http://127.0.0.1:8000** and upload a syllabus in the instructor's course knowledge page.
+4. Open **http://127.0.0.1:8000** and import the instructor's **official Simple Syllabus PDF** in Course Knowledge → Official Syllabus.
 
 Ollama normally runs in the background on Windows. The server sends requests to `http://127.0.0.1:11434/api/chat` and uses `qwen3:4b`. To change the model, set `OLLAMA_MODEL`; to use an alternate local Ollama host, set `OLLAMA_URL`. **Do not expose Ollama or the ClassPoint demo API to the public internet.**
 
@@ -28,7 +28,7 @@ Ollama normally runs in the background on Windows. The server sends requests to 
 - Other questions rank relevant PDF pages and instructor materials, and send only selected excerpts to Qwen3 with instructions for concise, source-grounded answers.
 - If Ollama is unavailable, the assistant says so briefly and cites matching sources instead of dumping PDF pages.
 - Instructor-approved FAQs remain supported.
-- The existing professor and student interface is unchanged.
+- The existing professor and student interface is unchanged. Official Simple Syllabus validation and the professor-managed source-of-truth remain intact.
 
 ### CHEM 107 regression fixture (illustrative sample)
 
@@ -47,3 +47,9 @@ No OpenAI API key or paid credits are required. Model outputs are not guaranteed
 The original app's access model is for local demonstration, **not production**: the UI role switch is not authentication, and endpoint authorization has not been hardened. Avoid real student records and private course data until login, instructor ownership, section enrollment enforcement, and student privacy protections are implemented.
 
 The repository previously tracked SQLite databases and a `.venv` directory. The updated `.gitignore` prevents *new* untracked copies from being added; already tracked files require a separate coordinated cleanup and review before they can be removed safely.
+
+## Protected collaborator workflows
+
+Preserve v5's seven professor pages (Overview, Sections, Course Knowledge, Office Hours, Students & Access, Insights, Profile) and student navigation. One syllabus per section remains the authoritative policy source, and its import still requires the Simple Syllabus markings. Supplemental material, FAQ, office-hours, join-code, enrollment, activity and Canvas shortcut routes stay untouched. Do not duplicate these features or add Canvas synchronization to the professor UI.
+
+Review tests and ask a teammate to smoke-test these workflows on a copy of the demo database before merging. Automated tests cover answer retrieval, not the entire UI.
