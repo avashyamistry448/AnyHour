@@ -4,7 +4,7 @@ This is a standalone local AnyHour demo with the **v5 professor workspace preser
 
 ## Quick start (Mac)
 
-1. Open Terminal in this **classpoint-student-v6** folder. The root repository also has older v5 files, so make sure you're in this folder.
+1. Open Terminal in this **AnyHour-student-v6** folder. The root repository also has older v5 files, so make sure you're in this folder.
 2. Run:
 
 ```bash
