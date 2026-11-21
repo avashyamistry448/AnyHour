@@ -67,7 +67,7 @@ class GradingTests(unittest.TestCase):
 
 class ConciseAndDocumentTests(unittest.TestCase):
     def test_category_exams_weight_is_collective(self):
-        pages = ["Intro", "Grading breakdown\\nModule Quizzes: 30%\\nAssignments: 30%\\nExams: 30%\\nReflection Video: 10%"]
+        pages = ["Intro", "Grading breakdown\nModule Quizzes: 30%\nAssignments: 30%\nExams: 30%\nReflection Video: 10%"]
         result = category_grading_answer(pages, "How much is each exam worth?")
         self.assertEqual(result["answer"], "Together, exams account for 30% of your overall grade.")
         self.assertEqual(result["sources"], ["Official Syllabus · page 2"])
@@ -76,7 +76,7 @@ class ConciseAndDocumentTests(unittest.TestCase):
         self.assertIsNone(category_grading_answer(["Exams: 30%"], "How much is Exam 1 worth?"))
 
     def test_thinking_tags_are_not_displayed(self):
-        raw = "<think>Let me reason through the user's request.</think>{\\"answer\\":\\"Exams are worth 30%.\\"}"
+        raw = "<think>Let me reason through the user's request.</think>{\"answer\":\"Exams are worth 30%.\"}"
         self.assertEqual(_concise_answer(raw), "Exams are worth 30%.")
 
     def test_untagged_model_reasoning_never_reaches_chat(self):
