@@ -11,14 +11,14 @@ class BrandingTests(unittest.TestCase):
         for directory in ENTRY_POINTS:
             with self.subTest(entry=directory.name):
                 page = (directory / "index.html").read_text(encoding="utf-8")
-                self.assertIn("<title>anyhour | Course Workspace</title>", page)
-                self.assertIn('<span>anyhour<span style="color:#8495ff">.</span></span>', page)
+                self.assertIn("<title>AnyHour | Course Workspace</title>", page)
+                self.assertIn('<span>AnyHour<span style="color:#8495ff">.</span></span>', page)
 
     def test_launch_branding_and_database_compatibility(self):
         for directory in ENTRY_POINTS:
             with self.subTest(entry=directory.name):
                 server = (directory / "server.py").read_text(encoding="utf-8")
-                self.assertIn("anyhour running at", server)
+                self.assertIn("AnyHour running at", server)
                 # Preserve existing database files instead of creating a fresh one.
                 self.assertIn("DB=ROOT/'classpilot.db'", server)
 
