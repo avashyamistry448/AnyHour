@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+canvas.env
+*.db
+*.sqlite3
+.DS_Store
