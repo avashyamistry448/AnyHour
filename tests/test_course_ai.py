@@ -1,7 +1,10 @@
 """Regression tests for source-grounded ClassPilot assistant."""
 import unittest
+from unittest.mock import patch
+import io
+import json
 
-from course_ai import grading_answer, category_grading_answer, rank_syllabus_pages, rank_materials, _concise_answer
+from course_ai import grading_answer, category_grading_answer, rank_syllabus_pages, rank_materials, _concise_answer, local_answer
 
 GRADING_PAGE = """iClicker profile
 Grading Policy
@@ -96,6 +99,53 @@ class ConciseAndDocumentTests(unittest.TestCase):
         ]
         results = rank_materials(rows, "When are projects due?")
         self.assertTrue(any(item["title"] == "Project policies" for item in results))
+
+
+class OllamaRecoveryTests(unittest.TestCase):
+    def test_plain_text_answer_is_accepted(self):
+        self.assertEqual(_concise_answer("Office hours are Tuesdays at 2 PM."), "Office hours are Tuesdays at 2 PM.")
+
+    def test_json_answer_is_still_accepted(self):
+        self.assertEqual(_concise_answer('{"answer": "Office hours are Tuesdays at 2 PM."}'), "Office hours are Tuesdays at 2 PM.")
+
+    def test_truncated_json_is_not_displayed(self):
+        self.assertEqual(_concise_answer('{"answer": "Office hours'), "")
+
+    def test_ollama_retries_empty_then_responds(self):
+        requests = []
+        replies = [
+            {"message": {"content": '{"answer": "Office hours'}},
+            {"message": {"content": "Office hours are Tuesdays at 2 PM."}},
+        ]
+        def fake_urlopen(request, timeout):
+            requests.append(json.loads(request.data.decode("utf-8")))
+            return io.BytesIO(json.dumps(replies[len(requests) - 1]).encode("utf-8"))
+
+        with patch("course_ai.urllib.request.urlopen", side_effect=fake_urlopen):
+            answer = local_answer("When are office hours?", [
+                {"title": "Official Syllabus · page 1",
+                 "answer": "Office hours: Tuesdays at 2 PM.",
+                 "kind": "official_syllabus"}
+            ])
+        self.assertEqual(answer["answer"], "Office hours are Tuesdays at 2 PM.")
+        self.assertEqual(answer["mode"], "ollama")
+        self.assertEqual(len(requests), 2)
+        self.assertTrue(all("format" not in item for item in requests))
+        self.assertTrue(all(item["think"] is False for item in requests))
+
+    def test_ollama_answers_first_attempt(self):
+        requests = []
+        def fake_urlopen(request, timeout):
+            requests.append(request)
+            return io.BytesIO(b'{"message":{"content":"The final is worth 25%."}}')
+        with patch("course_ai.urllib.request.urlopen", side_effect=fake_urlopen):
+            answer = local_answer("How much is my final worth?", [
+                {"title": "Official Syllabus · page 5",
+                 "answer": "Final Exam 25%",
+                 "kind": "official_syllabus"}
+            ])
+        self.assertEqual(answer["answer"], "The final is worth 25%.")
+        self.assertEqual(len(requests), 1)
 
 
 if __name__ == "__main__":
