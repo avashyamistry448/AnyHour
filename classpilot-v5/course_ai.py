@@ -105,7 +105,7 @@ def rank_syllabus_pages(pages, question, limit=3):
 def category_grading_answer(pages, question):
     """Answer an explicitly labeled overall grading category, not an individual exam."""
     q = question.casefold()
-    if not re.search(r"\bexams\b", q) or re.search(r"\b(?:exam|midterm)\s*(?:[12]|one|two|#1|#2)\b|\bfinal\b", q):
+    if not re.search(r"\bexams?\b", q) or re.search(r"\b(?:exam|midterm)\s*(?:[12]|one|two|#1|#2)\b|\bfinal\b", q):
         return None
     if not re.search(r"\b(?:worth|weight|percent|grade|count|much)\b", q):
         return None
