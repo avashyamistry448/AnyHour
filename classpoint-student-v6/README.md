@@ -1,6 +1,6 @@
-# anyhour v6 — Student Workspace & Canvas
+# AnyHour v6 — Student Workspace & Canvas
 
-This is a standalone local anyhour demo with the **v5 professor workspace preserved** and a more complete student experience. Canvas remains the official LMS; anyhour is a professor-grounded student support resource.
+This is a standalone local AnyHour demo with the **v5 professor workspace preserved** and a more complete student experience. Canvas remains the official LMS; AnyHour is a professor-grounded student support resource.
 
 ## Quick start (Mac)
 
@@ -20,13 +20,13 @@ The script creates a local Python environment, installs `requirements.txt`, and 
 - **Dashboard:** Joined sections and shortcuts to professor-approved content and Canvas.
 - **My Sections:** Join with professor-issued codes, then read the official syllabus summary, FAQs, resources, and office hours for each section.
 - **Course Assistant:** Ask syllabus, assignment, and course-policy questions using the professor's section-specific materials.
-- **Canvas & Tasks:** Optional student-controlled, **read-only** Canvas OAuth integration to view Canvas courses, published assignments, due dates, and original Canvas links. Match a Canvas course to a anyhour section to ground deadline questions.
+- **Canvas & Tasks:** Optional student-controlled, **read-only** Canvas OAuth integration to view Canvas courses, published assignments, due dates, and original Canvas links. Match a Canvas course to a AnyHour section to ground deadline questions.
 
 The professor's existing Sections, Course Knowledge, Office Hours, Students & Access, Insights, and Profile pages remain in place.
 
 ## Configuring Canvas OAuth (optional)
 
-**Institutional administrator approval is required.** Canvas is not connected automatically. Without credentials, the page correctly displays an unconfigured status while non-Canvas anyhour features still work.
+**Institutional administrator approval is required.** Canvas is not connected automatically. Without credentials, the page correctly displays an unconfigured status while non-Canvas AnyHour features still work.
 
 1. Ask your Canvas administrator for a developer key and authorized read-only scopes.
 2. Copy `canvas.env.example` to `canvas.env`, and enter your institution's HTTPS Canvas domain, OAuth client ID, and client secret **on your own computer**.
