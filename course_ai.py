@@ -115,7 +115,7 @@ def category_grading_answer(pages, question):
             if 0 <= value <= 100:
                 percent = int(value) if value.is_integer() else value
                 return {
-                    "answer": f"Exams are worth {percent}% of your overall grade.",
+                    "answer": f"Together, exams account for {percent}% of your overall grade.",
                     "sources": [f"Official Syllabus · page {i+1}"],
                     "mode": "verified_fact",
                 }
