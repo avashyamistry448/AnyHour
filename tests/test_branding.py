@@ -14,6 +14,16 @@ class BrandingTests(unittest.TestCase):
                 self.assertIn("<title>AnyHour | Course Workspace</title>", page)
                 self.assertIn('<span>AnyHour<span style="color:#8495ff">.</span></span>', page)
 
+    def test_no_old_names_in_visible_ui(self):
+        for directory in ENTRY_POINTS:
+            with self.subTest(entry=directory.name):
+                for filename in ("index.html", "app.js"):
+                    content = (directory / filename).read_text(encoding="utf-8")
+                    self.assertNotIn("ClassPoint", content)
+                    self.assertNotIn("ClassPilot", content)
+                    self.assertNotIn("classpoint", content.lower())
+                    self.assertIn("AnyHour", content)
+
     def test_launch_branding_and_database_compatibility(self):
         for directory in ENTRY_POINTS:
             with self.subTest(entry=directory.name):
