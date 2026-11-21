@@ -3,3 +3,22 @@
 *.gcno
 *.gcda
 *.gcov
+
+# Local Python and editor artifacts
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+.env.*
+!.env.example
+
+# Local demo data (existing tracked files must be removed separately)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite3
+uploads/
+private_materials/
+.DS_Store
