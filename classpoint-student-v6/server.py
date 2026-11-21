@@ -1,4 +1,4 @@
-"""ClassPilot professor-first demo. Launch: python3 server.py"""
+"""anyhour professor-first demo. Launch: python3 server.py"""
 import base64, hashlib, hmac, io, json, mimetypes, os, re, secrets, sqlite3, urllib.request
 from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
@@ -329,5 +329,5 @@ class Handler(SimpleHTTPRequestHandler):
 
 if __name__=='__main__':
     seed()
-    port=int(os.getenv('PORT',8000));print(f'ClassPilot running at http://127.0.0.1:{port}',flush=True)
+    port=int(os.getenv('PORT',8000));print(f'anyhour running at http://127.0.0.1:{port}',flush=True)
     ThreadingHTTPServer(('127.0.0.1',port),Handler).serve_forever()
