@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlsplit
-from course_ai import grading_answer, rank_syllabus_pages, local_answer, ollama_available
+from course_ai import grading_answer, category_grading_answer, rank_syllabus_pages, rank_materials, local_answer, ollama_available
 
 ROOT=Path(__file__).resolve().parent
 DB=ROOT/'classpilot.db'
@@ -98,22 +98,31 @@ def search_answer(c,cid,question):
     verified=grading_answer(official_pages, question) if official else None
     if verified:
         return verified
+    category_verified=category_grading_answer(official_pages, question) if official else None
+    if category_verified:
+        return category_verified
     official_results=syllabus_matches(official_pages, question) if official else []
     policy_terms=('syllabus','grading','grade','late','deadline','due','quiz','exam','policy','office','email','instructor','schedule','credit','attendance')
     official_question=any(w in q for w in policy_terms)
-    candidates=[]
+    # Search every section-scoped document, including text far beyond its opening.
+    # This keeps supplemental evidence accessible without overriding the official syllabus.
+    all_materials=c.execute("SELECT title,body,kind FROM materials WHERE course_id=? AND kind IN ('contact','resource','notes','document')",(cid,)).fetchall()
+    material_matches=rank_materials(all_materials, question, limit=4)
+    faq_matches=[]
     for row in rows:
         rating=score(row['question'])*3+score(row['answer'])
-        if rating>0:candidates.append((rating,{'title':'FAQ: '+row['question'],'answer':row['answer'],'kind':'faq'}))
-    for row in c.execute("SELECT title,body,kind FROM materials WHERE course_id=? AND kind IN ('contact','resource','notes','document')",(cid,)):
-        rating=score(row['title'])*3+score(row['body'])
-        if rating>0:candidates.append((rating,{'title':row['title'],'answer':row['body'][:2200],'kind':row['kind']}))
-    candidates.sort(key=lambda item:-item[0]);matches=[item for _,item in candidates[:3]]
-    if official_results and official_question:
-        matches=[v for _,v in official_results[:3]]
-        # Official document overrides conflicting informal FAQs for course policies.
-    elif not matches and official_results:
-        matches=[v for _,v in official_results[:3]]
+        if rating>0:
+            faq_matches.append((rating,{'title':'FAQ: '+row['question'],'answer':row['answer'],'kind':'faq'}))
+    faq_matches.sort(key=lambda item:-item[0])
+    faqs=[entry for _,entry in faq_matches[:2]]
+    syllabus_evidence=[entry for _,entry in official_results[:3]]
+    if official_question and syllabus_evidence:
+        # Syllabus takes precedence for policies, deadlines and grading.
+        # Other uploaded documents are still searched, but get secondary slots.
+        matches=(syllabus_evidence[:2]+material_matches[:2])[:4]
+    else:
+        # Approved FAQs remain deterministic and prioritized for non-policy queries.
+        matches=(faqs+material_matches[:3]+syllabus_evidence[:2])[:4]
     if not matches and any(k in q for k in ('office hour','meeting time','appointment')):
         times=c.execute('SELECT * FROM office_hours WHERE course_id=? ORDER BY weekday,start_time',(cid,)).fetchall()
         if times:
