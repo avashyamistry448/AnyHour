@@ -3,7 +3,7 @@ from pathlib import Path
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-ENTRY_POINTS = (ROOT, ROOT / "classpilot-v5", ROOT / "classpoint-student-v6")
+ENTRY_POINTS = (ROOT, ROOT / "classpilot-v5", ROOT / "AnyHour-student-v6")
 
 
 class BrandingTests(unittest.TestCase):
