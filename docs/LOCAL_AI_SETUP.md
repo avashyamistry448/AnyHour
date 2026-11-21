@@ -1,6 +1,6 @@
 # Local AI and grading accuracy
 
-anyhour includes the original professor/student pages. The course assistant now uses **Ollama + Qwen3** locally instead of the paid OpenAI API.
+AnyHour includes the original professor/student pages. The course assistant now uses **Ollama + Qwen3** locally instead of the paid OpenAI API.
 
 ## Windows setup
 
@@ -20,7 +20,7 @@ anyhour includes the original professor/student pages. The course assistant now 
 
 4. Open **http://127.0.0.1:8000** and import the instructor's **official Simple Syllabus PDF** in Course Knowledge → Official Syllabus.
 
-Ollama normally runs in the background on Windows. The server sends requests to `http://127.0.0.1:11434/api/chat` and uses `qwen3:4b`. To change the model, set `OLLAMA_MODEL`; to use an alternate local Ollama host, set `OLLAMA_URL`. **Do not expose Ollama or the anyhour demo API to the public internet.**
+Ollama normally runs in the background on Windows. The server sends requests to `http://127.0.0.1:11434/api/chat` and uses `qwen3:4b`. To change the model, set `OLLAMA_MODEL`; to use an alternate local Ollama host, set `OLLAMA_URL`. **Do not expose Ollama or the AnyHour demo API to the public internet.**
 
 ## Answer behavior
 
