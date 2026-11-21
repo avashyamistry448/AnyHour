@@ -204,7 +204,7 @@ def local_answer(question, matches):
         "options": {"temperature": 0, "num_predict": 150},
         "messages": [
             {"role": "system", "content": (
-                "You are ClassPilot, a concise course assistant. Use ONLY the supplied course "
+                "You are AnyHour, a concise course assistant. Use ONLY the supplied course "
                 "evidence. Answer direct factual questions in one sentence and cite a source. "
                 "For weights and dates, use exact values tied to the correct component; "
                 "never infer or guess. If evidence doesn't clearly answer, say you cannot "

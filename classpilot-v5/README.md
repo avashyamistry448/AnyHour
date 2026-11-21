@@ -1,4 +1,4 @@
-# anyhour v5 — Streamlined professor workspace
+# AnyHour v5 — Streamlined professor workspace
 
 This version simplifies the professor experience without changing the app's original identity or removing your syllabus, FAQ, section codes, analytics or documents.
 
@@ -17,7 +17,7 @@ python3 server.py
 
 4. Open `http://127.0.0.1:8000`.
 
-If port 8000 is occupied by an earlier anyhour version, close its Terminal window or run `PORT=8001 python3 server.py` and open `http://127.0.0.1:8001`.
+If port 8000 is occupied by an earlier AnyHour version, close its Terminal window or run `PORT=8001 python3 server.py` and open `http://127.0.0.1:8001`.
 
 ## Pages
 
