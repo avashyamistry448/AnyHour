@@ -1,7 +1,7 @@
 """Regression tests for source-grounded ClassPilot assistant."""
 import unittest
 
-from course_ai import grading_answer, rank_syllabus_pages
+from course_ai import grading_answer, category_grading_answer, rank_syllabus_pages, rank_materials, _concise_answer
 
 GRADING_PAGE = """iClicker profile
 Grading Policy
@@ -63,6 +63,39 @@ class GradingTests(unittest.TestCase):
 
     def test_unrelated_question_does_not_trigger_grade_parser(self):
         self.assertIsNone(grading_answer(PAGES, "When does the final start?"))
+
+
+class ConciseAndDocumentTests(unittest.TestCase):
+    def test_category_exams_weight_is_collective(self):
+        pages = ["Intro", "Grading breakdown\\nModule Quizzes: 30%\\nAssignments: 30%\\nExams: 30%\\nReflection Video: 10%"]
+        result = category_grading_answer(pages, "How much is each exam worth?")
+        self.assertEqual(result["answer"], "Together, exams account for 30% of your overall grade.")
+        self.assertEqual(result["sources"], ["Official Syllabus · page 2"])
+
+    def test_category_does_not_override_individual_exam(self):
+        self.assertIsNone(category_grading_answer(["Exams: 30%"], "How much is Exam 1 worth?"))
+
+    def test_thinking_tags_are_not_displayed(self):
+        raw = "<think>Let me reason through the user's request.</think>{\\"answer\\":\\"Exams are worth 30%.\\"}"
+        self.assertEqual(_concise_answer(raw), "Exams are worth 30%.")
+
+    def test_untagged_model_reasoning_never_reaches_chat(self):
+        raw = "Okay, the user is asking about exams. Let me check the evidence."
+        self.assertEqual(_concise_answer(raw), "")
+
+    def test_documents_are_searched_beyond_first_2200_characters(self):
+        rows = [{"title":"Lab handbook", "kind":"document", "body":"Unrelated material. " * 200 + "Lab reports are due each Friday at 5pm."}]
+        results = rank_materials(rows, "When are lab reports due?")
+        self.assertEqual(len(results), 1)
+        self.assertIn("Friday at 5pm", results[0]["answer"])
+
+    def test_document_search_scans_multiple_uploaded_documents(self):
+        rows = [
+            {"title":"Week 1 notes", "kind":"document", "body":"Foundations of financial planning."},
+            {"title":"Project policies", "kind":"document", "body":"Projects are due Sunday at 11:59pm."}
+        ]
+        results = rank_materials(rows, "When are projects due?")
+        self.assertTrue(any(item["title"] == "Project policies" for item in results))
 
 
 if __name__ == "__main__":
