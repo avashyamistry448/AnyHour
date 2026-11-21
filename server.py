@@ -172,7 +172,7 @@ class Handler(SimpleHTTPRequestHandler):
                 if path=='/api/syllabus':
                     cid=int(data['course_id']);name=str(data.get('name','')).strip();url=str(data.get('url','')).strip()
                     if not exists(c,cid):raise ValueError('Unknown section')
-                    if not name.lower().endswith('.pdf'):raise ValueError('Upload a PDF syllabus')
+                    if not name.lower().endswith('.pdf'):raise ValueError('Upload the official Simple Syllabus PDF using its Print option')
                     if url and not re.match(r'^https?://',url):raise ValueError('Enter a valid Simple Syllabus URL')
                     raw=base64.b64decode(data.get('base64',''),validate=True)
                     if len(raw)>MAX_SIZE:raise ValueError('PDF exceeds 32 MB')
@@ -182,8 +182,8 @@ class Handler(SimpleHTTPRequestHandler):
                     if not 1<=len(pdf.pages)<=160:raise ValueError('PDF page count is invalid')
                     pages=[(p.extract_text() or '').strip() for p in pdf.pages]
                     txt='\n'.join(pages)
-                    if not re.search(r'course information|grading policy|course learning outcomes|course syllabus|syllabus',txt,re.I):
-                        raise ValueError('This PDF does not appear to contain a course syllabus')
+                    if not re.search(r'simple\s*syllabus|simplesyllabus\.com',txt,re.I) or not re.search(r'course information|grading policy|course learning outcomes',txt,re.I):
+                        raise ValueError('This does not look like an official Simple Syllabus printout')
                     if len(txt.strip())<200:raise ValueError('No selectable text found in the printed syllabus')
                     c.execute('INSERT INTO syllabi(course_id,filename,source_url,pages_json,imported_at) VALUES(?,?,?,?,?) ON CONFLICT(course_id) DO UPDATE SET filename=excluded.filename,source_url=excluded.source_url,pages_json=excluded.pages_json,imported_at=excluded.imported_at',(cid,name,url,json.dumps(pages),utcnow()))
                     c.execute("DELETE FROM materials WHERE course_id=? AND kind='syllabus'",(cid,))
