@@ -145,8 +145,12 @@ def rank_syllabus_pages(pages, question, limit=3):
             if not found:
                 continue
             score = 5 * len(found)
-            if grade_query and re.search(r"grading policy|grading breakdown|percentage of overall grade|course component", lower):
-                score += 25
+            if grade_query:
+                grade_rows = re.findall(r"(?m)^\s*[A-Za-z][A-Za-z /&-]{2,60}:\s*\d+(?:\.\d+)?\s*%", passage)
+                if len(grade_rows) >= 3:
+                    score += 65
+                if re.search(r"grading policy|grading breakdown|percentage of overall grade|course component", lower):
+                    score += 20
             if "office" in q and "office hours" in lower:
                 score += 15
             if ("late" in q or "extension" in q) and "late" in lower:
@@ -158,6 +162,8 @@ def rank_syllabus_pages(pages, question, limit=3):
     # their text is distinct; this leaves space for supplemental documents.
     selected = []
     for score, _, passage, entry in candidates:
+        if grade_query and any(entry["title"] == chosen["title"] for _, chosen in selected):
+            continue
         if any(passage in previous or previous in passage for previous in [x[1]["answer"] for x in selected]):
             continue
         selected.append((score, entry))
@@ -295,6 +301,35 @@ def grading_table_answer(pages, question):
         "sources": [f"Official Syllabus · page {page_index + 1} · Grading table"],
         "mode": "verified_fact",
     }
+
+
+
+def unspecified_individual_exam_weight(pages, question):
+    """When only a combined exams weight exists, explain the distinction.
+
+    Uses the actual table lookup rather than assuming the course's percentages.
+    This must run only after specific exam-row lookup has failed.
+    """
+    q = question.casefold()
+    if not re.search(r"\b(?:worth|weight|percent|percentage|how much|count|grade)\b", q):
+        return None
+    if not re.search(r"\b(?:final\s+exam|final\s+examination|exam\s*#?\s*[1-9]|midterm\s*#?\s*[1-9])\b", q):
+        return None
+    # An explicit per-exam row would have already been returned by grading_answer.
+    # If another document offers per-exam weights, do not override that evidence.
+    collective = grading_table_answer(pages, "What percentage are exams worth?")
+    if collective:
+        match = re.search(r"(\d+(?:\.\d+)?)%", collective["answer"])
+        weight = match.group(1) if match else None
+        if weight:
+            return {
+                "answer": ("The syllabus lists exams together as "
+                           f"{weight}% of the overall grade, but does not "
+                           "specify a separate weight for that individual exam."),
+                "sources": collective["sources"],
+                "mode": "verified_limit",
+            }
+    return None
 
 
 def rank_materials(rows, question, limit=4):
