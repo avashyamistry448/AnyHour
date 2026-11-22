@@ -3,8 +3,9 @@ import unittest
 from unittest.mock import patch
 import io
 import json
+from pathlib import Path
 
-from course_ai import grading_answer, category_grading_answer, rank_syllabus_pages, rank_materials, keyword_answer, local_answer
+from course_ai import grading_answer, category_grading_answer, rank_syllabus_pages, rank_materials, keyword_answer, syllabus_fact_answer, local_answer
 
 GRADING_PAGE = """iClicker profile
 Grading Policy
@@ -205,6 +206,47 @@ class CommonStudentQuestionTests(unittest.TestCase):
                 item = {"title": "Official Syllabus · page 1", "kind": "official_syllabus",
                         "answer": line}
                 self.assertIsNotNone(keyword_answer(question, [item]))
+
+
+class FinancialPlanningSyllabusTests(unittest.TestCase):
+    """Use the real FINP 235 Simple Syllabus sample checked into the repo."""
+    @classmethod
+    def setUpClass(cls):
+        cls.pages = json.loads(
+            (Path(__file__).resolve().parents[1] / "sample_finp235_pages.json").read_text(encoding="utf-8")
+        )
+
+    def test_professor_from_real_syllabus(self):
+        result = syllabus_fact_answer(self.pages, "Who is my professor?")
+        self.assertIn("Nick Kilmer", result["answer"])
+        self.assertEqual(result["sources"], ["Official Syllabus · page 1"])
+
+    def test_professor_email_from_real_syllabus(self):
+        result = syllabus_fact_answer(self.pages, "What is the instructor's email?")
+        self.assertIn("FINP235@ag.tamu.edu", result["answer"])
+
+    def test_office_hours_from_real_syllabus(self):
+        result = syllabus_fact_answer(self.pages, "When are office hours?")
+        self.assertIn("appointment", result["answer"])
+
+    def test_no_required_textbook(self):
+        result = syllabus_fact_answer(self.pages, "What textbook do we need?")
+        self.assertIn("not required", result["answer"])
+
+    def test_category_grade_is_30_percent(self):
+        result = category_grading_answer(self.pages, "How much are exams worth?")
+        self.assertIn("30%", result["answer"])
+
+    def test_uncertain_individual_exam_weight_is_not_inferred(self):
+        self.assertIsNone(category_grading_answer(self.pages, "How much is Exam 1 worth?"))
+
+    def test_late_policy_page_is_found(self):
+        result = rank_syllabus_pages(self.pages, "What is the late work policy?")
+        self.assertTrue(result)
+        self.assertTrue(any("page 6" in entry["title"] or "page 5" in entry["title"] for _, entry in result))
+
+    def test_unknown_personal_phone_is_not_guessed(self):
+        self.assertIsNone(syllabus_fact_answer(self.pages, "What is my professor's personal cell phone number?"))
 
 
 if __name__ == "__main__":
