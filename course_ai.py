@@ -157,7 +157,7 @@ def rank_syllabus_pages(pages, question, limit=3):
                 score += 8
             # Rank answers about durations and makeup rules by the complete
             # concept expressed in the document, not just the word "exam".
-            if re.search(r"\b(?:exam|midterm|test)\b", q):
+            if re.search(r"\b(?:exams?|midterms?|tests?)\b", q):
                 if re.search(r"\b(?:how long|duration|minutes?|time limit)\b", q):
                     if re.search(r"\b\d+\s*[- ]\s*minutes?\b|\btime limit\b|\bduration\b", lower):
                         score += 45
