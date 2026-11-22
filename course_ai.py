@@ -195,10 +195,14 @@ def grading_table_answer(pages, question):
             rows.append((line_index, label, percent, points))
 
         # Don't mistake isolated percentages in schedules or policies for grades.
+        # An unlabeled cluster must look like a grade breakdown: roughly
+        # 100% in total, not three independent quiz or exam scores.
+        components_total = sum(row[2] for row in rows)
+        looks_like_scores = any(re.search(r"\b(?:scores?|results?|average|achieved)\b", row[1], re.I) for row in rows)
         local_table = (
-            len(rows) >= 3
-            or (len(rows) >= 2 and bool(re.search(r"\bgrading\s+(?:policy|breakdown|scheme|weights?)\b|percentage of overall grade|course components?", page, re.I)))
-            or (len(rows) >= 2 and any(re.search(r"(?i)^\s*Total\s*:\s*100\s*%", x) for x in lines))
+            (len(rows) >= 3 and 95 <= components_total <= 115 and not looks_like_scores)
+            or (len(rows) >= 2 and not looks_like_scores and bool(re.search(r"\bgrading\s+(?:policy|breakdown|scheme|weights?)\b|percentage of overall grade|course components?", page, re.I)))
+            or (len(rows) >= 2 and not looks_like_scores and any(re.search(r"(?i)^\s*Total\s*:\s*100\s*%", x) for x in lines))
         )
         section_heading = bool(re.search(r"\bgrading\s+(?:policy|breakdown|scheme|weights?)\b|course components? and point distribution", page, re.I))
         # Context carries only to the next page; many PDFs split tables there.
