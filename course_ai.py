@@ -138,6 +138,113 @@ def category_grading_answer(pages, question):
     return None
 
 
+
+def grading_table_answer(pages, question):
+    """Read *any* named component's percentage from a syllabus grading table.
+
+    Categories and weights are discovered from the uploaded text, never coded
+    for a particular course. Reject schedules, grade scales and ambiguous rows.
+    """
+    q = question.casefold()
+    if not re.search(r"\b(?:worth|weight|weighted|percent|percentage|portion|contribute|count|how much)\b", q):
+        return None
+
+    # Do not answer a question about a particular exam with the combined
+    # "Exams" category; those are different facts.
+    numbered_exam = re.search(r"\b(?:exam|midterm|test)\s*#?\s*([1-9]|one|two|three)\b", q)
+    individual_final = bool(re.search(r"\bfinal(?:\s+exam|\s+examination)?\b", q))
+    generic = {
+        "grade", "graded", "grading", "weight", "weighted", "percent",
+        "percentage", "overall", "total", "worth", "point", "points",
+        "score", "count", "counts", "contribute", "contributes",
+        "portion", "each", "individual", "individuality", "category",
+        "component", "components", "mark", "marks", "value", "entire",
+    }
+    query_terms = _terms(question) - generic
+    if not query_terms:
+        return None
+
+    # A grading table can start at the end of one PDF page and continue
+    # at the top of the next. A dense cluster of percentage rows is itself
+    # enough evidence to identify a table, even without a heading.
+    candidate_rows = []
+    heading_context = False
+    for page_index, page in enumerate(pages):
+        lines = page.splitlines()
+        rows = []
+        for line_index, raw_line in enumerate(lines):
+            line = re.sub(r"\s+", " ", raw_line).strip(" \t\u2022-*")
+            row = re.fullmatch(
+                r"([A-Za-z][A-Za-z0-9 &/(),.'\-]{1,80}?)\s*:\s*(\d{1,3}(?:\.\d+)?)\s*%",
+                line,
+            )
+            if row:
+                label, points, percent = row.group(1).strip(), None, float(row.group(2))
+            else:
+                row = re.fullmatch(
+                    r"([A-Za-z][A-Za-z0-9 &/(),.'\-]{1,80}?)\s+(\d{1,6})\s+(\d{1,3}(?:\.\d+)?)\s*%",
+                    line,
+                )
+                if not row:
+                    continue
+                label, points, percent = row.group(1).strip(), int(row.group(2)), float(row.group(3))
+            if not 0 <= percent <= 100:
+                continue
+            if re.fullmatch(r"(?:total|grand total|sum|[a-f]|course grade|overall grade)", label, re.I):
+                continue
+            rows.append((line_index, label, percent, points))
+
+        # Don't mistake isolated percentages in schedules or policies for grades.
+        local_table = (
+            len(rows) >= 3
+            or (len(rows) >= 2 and bool(re.search(r"\bgrading\s+(?:policy|breakdown|scheme|weights?)\b|percentage of overall grade|course components?", page, re.I)))
+            or (len(rows) >= 2 and any(re.search(r"(?i)^\s*Total\s*:\s*100\s*%", x) for x in lines))
+        )
+        section_heading = bool(re.search(r"\bgrading\s+(?:policy|breakdown|scheme|weights?)\b|course components? and point distribution", page, re.I))
+        # Context carries only to the next page; many PDFs split tables there.
+        allowed = local_table or (heading_context and bool(rows)) or (section_heading and bool(rows))
+        heading_context = section_heading
+        if not allowed:
+            continue
+        for line_index, label, percent, points in rows:
+            label_terms = _terms(label) - generic
+            if not label_terms:
+                continue
+            # "Exam 1" is not a match for the whole "Exams" category.
+            if numbered_exam and not re.search(r"\b(?:exam|midterm|test)\s*#?\s*" + re.escape(numbered_exam.group(1)) + r"\b", label, re.I):
+                continue
+            if individual_final and not re.search(r"\bfinal\b", label, re.I):
+                continue
+            shared = label_terms & query_terms
+            if not shared:
+                continue
+            # Prefer the most specific category label; allow shorter "quizzes"
+            # to identify "module quizzes" when that is the only category.
+            coverage = len(shared) / len(label_terms)
+            if coverage < 0.5:
+                continue
+            score = (len(shared), coverage, -len(label_terms))
+            candidate_rows.append((score, page_index, label, percent, points))
+
+    if not candidate_rows:
+        return None
+    candidate_rows.sort(key=lambda item: item[0], reverse=True)
+    best_score = candidate_rows[0][0]
+    best_rows = [row for row in candidate_rows if row[0] == best_score]
+    # If the same wording matches different categories equally well,
+    # don't invent which one the student meant.
+    if len({(row[2].casefold(), row[3]) for row in best_rows}) > 1:
+        return None
+    _, page_index, label, percent, points = best_rows[0]
+    pct = int(percent) if percent.is_integer() else percent
+    detail = f" ({points} points)" if points is not None else ""
+    return {
+        "answer": f"{label} is worth {pct}% of your overall grade{detail}.",
+        "sources": [f"Official Syllabus · page {page_index + 1} · Grading table"],
+        "mode": "verified_fact",
+    }
+
+
 def rank_materials(rows, question, limit=4):
     """Search full text of every uploaded course document, not only its opening."""
     tokens = _terms(question)
