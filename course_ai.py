@@ -145,12 +145,27 @@ def rank_syllabus_pages(pages, question, limit=3):
             if not found:
                 continue
             score = 5 * len(found)
-            if grade_query and re.search(r"grading policy|grading breakdown|percentage of overall grade|course component", lower):
-                score += 25
+            if grade_query:
+                grade_rows = re.findall(r"(?m)^\s*[A-Za-z][A-Za-z /&-]{2,60}:\s*\d+(?:\.\d+)?\s*%", passage)
+                if len(grade_rows) >= 3:
+                    score += 65
+                if re.search(r"grading policy|grading breakdown|percentage of overall grade|course component", lower):
+                    score += 20
             if "office" in q and "office hours" in lower:
                 score += 15
             if ("late" in q or "extension" in q) and "late" in lower:
                 score += 8
+            # Rank answers about durations and makeup rules by the complete
+            # concept expressed in the document, not just the word "exam".
+            if re.search(r"\b(?:exams?|midterms?|tests?)\b", q):
+                if re.search(r"\b(?:how long|duration|minutes?|time limit)\b", q):
+                    if re.search(r"\b\d+\s*[- ]\s*minute|\btime limit\b|\bduration\b", lower):
+                        score += 45
+                if re.search(r"\b(?:make\s*up|makeup|missed|absent|reschedule)\b", q):
+                    if re.search(r"\b(?:no\s+)?make\s*[- ]?up\s+exams?\b|\b(?:no\s+)?makeup\s+exams?\b", lower):
+                        score += 55
+                    elif re.search(r"\b(?:excused absence|exam retake|rescheduled exam)\b", lower):
+                        score += 15
         title = f"Official Syllabus · page {index+1}"
         candidates.append((score, index, passage, {"title": title, "answer": passage, "kind": "official_syllabus"}))
     candidates.sort(key=lambda entry: (-entry[0], entry[1]))
@@ -158,6 +173,8 @@ def rank_syllabus_pages(pages, question, limit=3):
     # their text is distinct; this leaves space for supplemental documents.
     selected = []
     for score, _, passage, entry in candidates:
+        if grade_query and any(entry["title"] == chosen["title"] for _, chosen in selected):
+            continue
         if any(passage in previous or previous in passage for previous in [x[1]["answer"] for x in selected]):
             continue
         selected.append((score, entry))
@@ -295,6 +312,35 @@ def grading_table_answer(pages, question):
         "sources": [f"Official Syllabus · page {page_index + 1} · Grading table"],
         "mode": "verified_fact",
     }
+
+
+
+def unspecified_individual_exam_weight(pages, question):
+    """When only a combined exams weight exists, explain the distinction.
+
+    Uses the actual table lookup rather than assuming the course's percentages.
+    This must run only after specific exam-row lookup has failed.
+    """
+    q = question.casefold()
+    if not re.search(r"\b(?:worth|weight|percent|percentage|how much|count|grade)\b", q):
+        return None
+    if not re.search(r"\b(?:final\s+exam|final\s+examination|exam\s*#?\s*[1-9]|midterm\s*#?\s*[1-9])\b", q):
+        return None
+    # An explicit per-exam row would have already been returned by grading_answer.
+    # If another document offers per-exam weights, do not override that evidence.
+    collective = grading_table_answer(pages, "What percentage are exams worth?")
+    if collective:
+        match = re.search(r"(\d+(?:\.\d+)?)%", collective["answer"])
+        weight = match.group(1) if match else None
+        if weight:
+            return {
+                "answer": ("The syllabus lists exams together as "
+                           f"{weight}% of the overall grade, but does not "
+                           "specify a separate weight for that individual exam."),
+                "sources": collective["sources"],
+                "mode": "verified_limit",
+            }
+    return None
 
 
 def rank_materials(rows, question, limit=4):
@@ -450,42 +496,55 @@ def keyword_answer(question, matches):
 
 
 def _clean_model_answer(raw):
-    """Remove model thinking, untagged planning and structural wrappers."""
-    text = str(raw or "").strip()
+    """Never send internal planning/reasoning text to the student's chat."""
+    text = str(raw or "").strip().strip('"')
     text = re.sub(r"(?is)<think\b[^>]*>.*?</think\s*>", "", text).strip()
-    if re.search(r"(?i)<think\b", text):
-        return ""  # unfinished thinking is not an answer
-    # Qwen may emit ChatML reasoning delimiters in the visible response.
+    if re.search(r"(?i)<think\b|<\|im_start\|>assistant\s+channel=analysis|<\|channel\|>analysis", text):
+        return ""  # incomplete or exposed internal reasoning
     if "[/INST]" in text:
         text = text.rsplit("[/INST]", 1)[-1].strip()
-    if "final answer:" in text.casefold():
-        text = re.split(r"(?i)final answer\s*:", text)[-1].strip()
-    elif re.search(r"(?im)^answer\s*:", text):
-        text = re.split(r"(?im)^answer\s*:", text)[-1].strip()
     if text.startswith("{"):
         try:
-            obj = json.loads(text)
-            text = str(obj.get("answer", "")) if isinstance(obj, dict) else ""
+            value = json.loads(text)
+            text = str(value.get("answer", "")) if isinstance(value, dict) else ""
         except ValueError:
             return ""
-    # Remove only planning commentary, not a student's answer.
-    preamble = re.compile(
+    explicit = re.search(r"(?im)(?:^|\n)\s*(?:final answer|answer)\s*:\s*", text)
+    if explicit:
+        text = text[explicit.end():].strip()
+    # Some older Ollama/Qwen builds ignore think=False and put a few
+    # reasoning sentences before the actual answer, without <think> tags.
+    # Remove only narrowly recognizable leading sentences.
+    beginning = re.compile(
         r"(?is)^\s*(?:"
-        r"okay[,.\s]+(?:the user|let me|we need|i need)[^.?!\n]*[.?!]\s*|"
-        r"(?:the user (?:is asking|wants|asked)|let me (?:check|look|think)|"
-        r"i (?:need|should|will) (?:check|look|find)|we need to (?:check|find))"
-        r"[^.?!\n]*[.?!]\s*|"
-        r"(?:analysis|reasoning)\s*:\s*[^\n]*\n+"
+        r"(?:okay[,.\s]+)?the user (?:is asking|wants|asked)[^.?!\n]*[.?!]\s*|"
+        r"(?:okay[,.\s]+)?let me (?:check|look|think)[^.?!\n]*[.?!]\s*|"
+        r"(?:i need to|we need to) (?:check|find|look)[^.?!\n]*[.?!]\s*"
         r")"
     )
     for _ in range(5):
-        updated = preamble.sub("", text, count=1).strip()
+        updated = beginning.sub("", text, count=1).strip()
         if updated == text:
             break
         text = updated
-    if re.match(r"(?i)^(?:okay[,.\s]+the user|let me check|we need to|the user is asking|analysis:|reasoning:)", text):
-        return ""  # no verified final answer in the response
-    return text[:1000].strip()
+    # Reject any remaining untagged internal deliberation. Displaying no
+    # model answer is preferable to displaying a false or confusing chain.
+    thought = re.compile(
+        r"(?i)\b(?:"
+        r"the user (?:might|may|is asking|wants|asked|could be)|"
+        r"i (?:need|should|will|have) to (?:check|look|reason|find|decide)|"
+        r"let me (?:check|look|think|reason)|"
+        r"first[,.:]?\s+i(?:'ll| will) (?:look|check|analyze)|"
+        r"wait[,.:]?\s+(?:the|this|i)|"
+        r"the evidence (?:provided|doesn't|does not)|"
+        r"the question is (?:about|asking)|"
+        r"the excerpts? (?:mention|show|talk|provide)|"
+        r"analysis:|reasoning:"
+        r")\b"
+    )
+    if thought.search(text):
+        return ""
+    return text[:750].strip()
 
 
 def _schedule_excerpt_answer(question, matches):
