@@ -5,7 +5,7 @@ import io
 import json
 from pathlib import Path
 
-from course_ai import grading_answer, category_grading_answer, grading_table_answer, rank_syllabus_pages, rank_materials, keyword_answer, syllabus_fact_answer, local_answer
+from course_ai import grading_answer, category_grading_answer, grading_table_answer, rank_syllabus_pages, _clean_model_answer, _schedule_excerpt_answer, rank_materials, keyword_answer, syllabus_fact_answer, local_answer
 
 GRADING_PAGE = """iClicker profile
 Grading Policy
@@ -308,6 +308,66 @@ class GenericGradingTableTests(unittest.TestCase):
     def test_ambiguous_category_does_not_guess(self):
         pages = ["Grading Policy\nFinal Project: 20%\nResearch Project: 30%\nParticipation: 50%\nTotal: 100%"]
         self.assertIsNone(grading_table_answer(pages, "How much is the project worth?"))
+
+
+class EvidenceRetrievalAndOutputTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pages = json.loads(
+            (Path(__file__).resolve().parents[1] / "sample_finp235_pages.json").read_text(encoding="utf-8")
+        )
+
+    def test_week_10_returns_exact_schedule_passage(self):
+        matches = rank_syllabus_pages(self.pages, "What's due in week 10?", limit=3)
+        self.assertTrue(matches)
+        self.assertEqual(matches[0][1]["title"], "Official Syllabus · page 8")
+        self.assertIn("Exam 2 (due 11/1 @ 11:59pm)", matches[0][1]["answer"])
+        self.assertIn("Assignment: None", matches[0][1]["answer"])
+        self.assertNotIn("Week 11", matches[0][1]["answer"])
+
+    def test_week_15_and_unknown_week(self):
+        hits = rank_syllabus_pages(self.pages, "What is due in Week 15?")
+        self.assertIn("Reflection Video (due 12/4 @ 11:59pm)", hits[0][1]["answer"])
+        self.assertIn("Exam 3 (due 12/6 @ 11:59pm)", hits[0][1]["answer"])
+        self.assertEqual(rank_syllabus_pages(self.pages, "What is due in Week 99?"), [])
+
+    def test_offline_schedule_uses_real_source(self):
+        matches = [x[1] for x in rank_syllabus_pages(self.pages, "What's due in week 10?")]
+        result = _schedule_excerpt_answer("What's due in week 10?", matches)
+        self.assertIn("Exam 2 (due 11/1 @ 11:59pm)", result["answer"])
+        self.assertIn("Assignment: None", result["answer"])
+        self.assertEqual(result["sources"], ["Official Syllabus · page 8"])
+
+    def test_document_question_not_restricted_to_hardcoded_question(self):
+        hits = rank_syllabus_pages(self.pages, "What is discussed in Week 12?")
+        self.assertIn("Investments, Retirement Planning", hits[0][1]["answer"])
+
+    def test_removes_untagged_reasoning_but_keeps_final_answer(self):
+        original = (
+            "Okay, the user is asking what's due in week 10. "
+            "Let me check the evidence provided. "
+            "Exam 2 is due November 1 at 11:59 PM."
+        )
+        self.assertEqual(_clean_model_answer(original), "Exam 2 is due November 1 at 11:59 PM.")
+
+    def test_removes_tagged_thinking(self):
+        self.assertEqual(
+            _clean_model_answer("<think>Let me check the syllabus.</think>Week 10 has Exam 2."),
+            "Week 10 has Exam 2.",
+        )
+
+    def test_rejects_only_thinking_with_no_answer(self):
+        self.assertEqual(_clean_model_answer("Okay, the user is asking about the schedule. Let me check the evidence."), "")
+
+    def test_real_ollama_response_is_sanitized(self):
+        matches = [x[1] for x in rank_syllabus_pages(self.pages, "What's due in week 10?")]
+        response_text = "Okay, the user is asking what's due in week 10. Let me check the evidence provided. Exam 2 is due 11/1 at 11:59pm."
+        fake = io.BytesIO(json.dumps({"message": {"content": response_text}}).encode("utf-8"))
+        with patch("course_ai.urllib.request.urlopen", return_value=fake):
+            result = local_answer("What's due in week 10?", matches)
+        self.assertEqual(result["answer"], "Exam 2 is due 11/1 at 11:59pm.")
+        self.assertEqual(result["mode"], "ollama")
+
 
 
 if __name__ == "__main__":
