@@ -173,8 +173,8 @@ def syllabus_fact_answer(pages, question):
     """Direct answers to well-structured facts printed in the official syllabus."""
     q = question.casefold()
     patterns = (
-        (r"\b(?:professor|instructor|teacher|lecturer|who teaches)\b", "instructor"),
         (r"\b(?:email|contact address)\b", "email"),
+        (r"\b(?:professor|instructor|teacher|lecturer|who teaches)\b", "instructor"),
         (r"\b(?:office hours|meet|appointment)\b", "office_hours"),
         (r"\b(?:textbook|required book|books? required)\b", "textbook"),
     )
