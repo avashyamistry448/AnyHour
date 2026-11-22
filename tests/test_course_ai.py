@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 import io
 import json
+import sqlite3
 from pathlib import Path
 
 from course_ai import grading_answer, category_grading_answer, grading_table_answer, unspecified_individual_exam_weight, rank_syllabus_pages, _clean_model_answer, _schedule_excerpt_answer, rank_materials, keyword_answer, syllabus_fact_answer, local_answer
@@ -412,6 +413,99 @@ class ReasoningAndGradeEvidenceRegressionTests(unittest.TestCase):
         self.assertEqual(answer["mode"], "source_excerpt")
         self.assertIn("Exam 2", answer["answer"])
 
+
+
+class CommonQuestionsEndToEndTests(unittest.TestCase):
+    """Exercise the real server search path with the uploaded FINP syllabus.
+
+    A mocked Ollama response makes each result deterministic in CI; it does
+    not claim to test a live Qwen installation on a contributor's machine.
+    """
+    @classmethod
+    def setUpClass(cls):
+        cls.pages = json.loads(
+            (Path(__file__).resolve().parents[1] / "sample_finp235_pages.json")
+            .read_text(encoding="utf-8")
+        )
+
+    def setUp(self):
+        self.conn = sqlite3.connect(":memory:")
+        self.conn.row_factory = sqlite3.Row
+        self.conn.executescript("""
+            CREATE TABLE syllabi (course_id INTEGER, filename TEXT, source_url TEXT, pages_json TEXT);
+            CREATE TABLE faq (course_id INTEGER, question TEXT, answer TEXT);
+            CREATE TABLE materials (course_id INTEGER, title TEXT, body TEXT, kind TEXT);
+            CREATE TABLE office_hours (course_id INTEGER, weekday INTEGER, start_time TEXT, end_time TEXT, meeting_type TEXT, location TEXT);
+        """)
+        self.conn.execute(
+            "INSERT INTO syllabi VALUES (1, 'FINP 235 syllabus', '', ?)",
+            (json.dumps(self.pages),),
+        )
+        import server
+        self.server = server
+
+    def tearDown(self):
+        self.conn.close()
+
+    def test_known_facts_from_syllabus_without_ollama(self):
+        # The verified fact pipeline handles these even with Ollama offline.
+        cases = [
+            ("Who is my professor?", "Nick Kilmer", "page 1"),
+            ("Who is my instructor?", "Nick Kilmer", "page 1"),
+            ("What is my professor's email?", "FINP235@ag.tamu.edu", "page 1"),
+            ("When are office hours?", "appointment", "page 1"),
+            ("Do I need a textbook?", "not required", "page 4"),
+            ("How much are exams worth?", "30%", "page 5"),
+            ("How much is the reflection video worth?", "10%", "page 5"),
+            ("What percentage are assignments worth?", "30%", "page 5"),
+            ("How much is extra credit worth?", "5%", "page 5"),
+            ("What is my final exam worth?", "does not specify a separate weight", "page 5"),
+            ("How much is Exam 2 worth?", "does not specify a separate weight", "page 5"),
+        ]
+        with patch.object(self.server, "local_answer", side_effect=AssertionError("Should use verified syllabus")):
+            for question, expected, page in cases:
+                with self.subTest(question=question):
+                    result = self.server.search_answer(self.conn, 1, question)
+                    self.assertIn(expected.lower(), result["answer"].lower())
+                    self.assertTrue(any(page in source for source in result["sources"]))
+                    self.assertNotIn("the user", result["answer"].lower())
+
+    def test_questions_retrieve_relevant_passages_before_model_call(self):
+        # These are intentionally NEW natural-language prompts, not hardcoded
+        # responses. Verify what context is actually sent to the model.
+        cases = [
+            ("What's due in week 10?", "Week 10", "Exam 2 (due 11/1"),
+            ("What assignments are due in week 15?", "Week 15", "Reflection Video (due 12/4"),
+            ("What lectures are scheduled in week 12?", "Week 12", "Investments, Retirement Planning"),
+            ("What's the late penalty for module quizzes?", "Module Quizzes", "20 point"),
+            ("How long are the exams?", "Exams:", "60-minute"),
+            ("Can I make up a missed exam?", "makeup exams", "excused absence"),
+        ]
+        for question, first, second in cases:
+            with self.subTest(question=question):
+                def answer_from_context(q, matches):
+                    joined = "\n".join(m["answer"] for m in matches)
+                    self.assertIn(first.casefold(), joined.casefold())
+                    self.assertIn(second.casefold(), joined.casefold())
+                    return {
+                        "answer": "Verified context was delivered to the model.",
+                        "sources": [m["title"] for m in matches],
+                        "mode": "test",
+                    }
+                with patch.object(self.server, "local_answer", side_effect=answer_from_context):
+                    result = self.server.search_answer(self.conn, 1, question)
+                    self.assertEqual(result["mode"], "test")
+                    self.assertTrue(result["sources"])
+
+    def test_unsupported_question_never_invents_private_number(self):
+        # A professor's *personal* number isn't necessarily their published
+        # office line, even if the syllabus has an official phone number.
+        with patch.object(self.server, "local_answer", return_value={
+            "answer": "I cannot verify a personal phone number from the syllabus.",
+            "sources": [], "mode": "offline"
+        }):
+            result = self.server.search_answer(self.conn, 1, "What's my professor's private cellphone?")
+        self.assertNotIn("979-393", result["answer"])
 
 
 if __name__ == "__main__":
