@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlsplit
-from course_ai import grading_answer, category_grading_answer, rank_syllabus_pages, rank_materials, local_answer, ollama_available
+from course_ai import grading_answer, category_grading_answer, rank_syllabus_pages, rank_materials, syllabus_fact_answer, local_answer, ollama_available
 
 ROOT=Path(__file__).resolve().parent
 DB=ROOT/'classpilot.db'
@@ -101,6 +101,9 @@ def search_answer(c,cid,question):
     category_verified=category_grading_answer(official_pages, question) if official else None
     if category_verified:
         return category_verified
+    direct=syllabus_fact_answer(official_pages, question) if official else None
+    if direct:
+        return direct
     official_results=syllabus_matches(official_pages, question) if official else []
     policy_terms=('syllabus','grading','grade','late','deadline','due','quiz','exam','policy','office','email','instructor','schedule','credit','attendance')
     official_question=any(w in q for w in policy_terms)

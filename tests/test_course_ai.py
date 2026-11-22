@@ -3,8 +3,9 @@ import unittest
 from unittest.mock import patch
 import io
 import json
+from pathlib import Path
 
-from course_ai import grading_answer, category_grading_answer, rank_syllabus_pages, rank_materials, keyword_answer, local_answer
+from course_ai import grading_answer, category_grading_answer, rank_syllabus_pages, rank_materials, keyword_answer, syllabus_fact_answer, local_answer
 
 GRADING_PAGE = """iClicker profile
 Grading Policy
@@ -140,6 +141,112 @@ class OllamaRecoveryTests(unittest.TestCase):
         self.assertEqual(result["mode"], "no_match")
         self.assertNotIn("beaker", result["answer"])
 
+
+
+class CommonStudentQuestionTests(unittest.TestCase):
+    def test_professor_synonym_retrieves_instructor(self):
+        pages = ["Course overview", "Instructor: Dr. Rivera\nEmail: rivera@example.edu"]
+        matches = rank_syllabus_pages(pages, "Who is my professor?")
+        self.assertEqual(matches[0][1]["title"], "Official Syllabus · page 2")
+        answer = keyword_answer("Who is my professor?", [matches[0][1]])
+        self.assertIn("Dr. Rivera", answer["answer"])
+
+    def test_textbook_synonym_retrieves_book(self):
+        pages = ["Required Book: Fundamentals of Chemistry, ISBN 1234567890"]
+        matches = rank_syllabus_pages(pages, "What textbook do we need?")
+        self.assertTrue(matches)
+        answer = keyword_answer("What textbook do we need?", [matches[0][1]])
+        self.assertIn("Fundamentals of Chemistry", answer["answer"])
+
+    def test_office_hours_are_extractable(self):
+        materials = [{"title": "Course details", "body": "Instructor: Dr. Rivera\nOffice Hours: Tuesdays at 2 PM in Room 130.", "kind": "document"}]
+        result = rank_materials(materials, "When can I meet my professor?")
+        self.assertTrue(result)
+        answer = keyword_answer("When are office hours?", result)
+        self.assertIn("Tuesdays at 2 PM", answer["answer"])
+
+    def test_deadline_paraphrase_retrieves_due_date(self):
+        rows = [{"title": "Course calendar", "body": "Assignments must be submitted by Sunday 11:59 PM.", "kind": "document"}]
+        matches = rank_materials(rows, "When is homework due?")
+        self.assertTrue(matches)
+        self.assertIn("Sunday", matches[0]["answer"])
+
+    def test_across_sources_choose_relevant_line(self):
+        matches = [
+            {"title": "Other notes", "kind": "document", "answer": "The final exam will occur in December."},
+            {"title": "Official Syllabus · page 2", "kind": "official_syllabus",
+             "answer": "Exams are worth 30% of the total grade."},
+        ]
+        answer = keyword_answer("How much are exams worth?", matches)
+        self.assertIn("30%", answer["answer"])
+
+    def test_missing_private_contact_does_not_invent(self):
+        matches = [{"title": "Syllabus", "kind": "official_syllabus",
+                    "answer": "Instructor: Dr. Rivera\nCourse title: Chemistry."}]
+        answer = keyword_answer("What is the professor's personal phone number?", matches)
+        self.assertIsNone(answer)
+
+    def test_missing_date_does_not_return_unrelated_course_line(self):
+        matches = [{"title": "Notes", "kind": "document",
+                    "answer": "Final exams are important learning milestones."}]
+        answer = keyword_answer("When is the final exam due?", matches)
+        self.assertIsNone(answer)
+
+    def test_many_questions_have_relevant_keyword_matches(self):
+        sample = [
+            ("When are office hours?", "Office Hours: Mondays at 3 PM."),
+            ("Who is my professor?", "Instructor: Dr. Rivera"),
+            ("What textbook is required?", "Required Book: Chemistry Fundamentals"),
+            ("Are late assignments accepted?", "Late assignments are accepted with a 10% penalty."),
+            ("How much are exams worth?", "Exams: 30% of final grade."),
+            ("Is attendance mandatory?", "Attendance is required in every lab."),
+        ]
+        for question, line in sample:
+            with self.subTest(question=question):
+                item = {"title": "Official Syllabus · page 1", "kind": "official_syllabus",
+                        "answer": line}
+                self.assertIsNotNone(keyword_answer(question, [item]))
+
+
+class FinancialPlanningSyllabusTests(unittest.TestCase):
+    """Use the real FINP 235 Simple Syllabus sample checked into the repo."""
+    @classmethod
+    def setUpClass(cls):
+        cls.pages = json.loads(
+            (Path(__file__).resolve().parents[1] / "sample_finp235_pages.json").read_text(encoding="utf-8")
+        )
+
+    def test_professor_from_real_syllabus(self):
+        result = syllabus_fact_answer(self.pages, "Who is my professor?")
+        self.assertIn("Nick Kilmer", result["answer"])
+        self.assertEqual(result["sources"], ["Official Syllabus · page 1"])
+
+    def test_professor_email_from_real_syllabus(self):
+        result = syllabus_fact_answer(self.pages, "What is the instructor's email?")
+        self.assertIn("FINP235@ag.tamu.edu", result["answer"])
+
+    def test_office_hours_from_real_syllabus(self):
+        result = syllabus_fact_answer(self.pages, "When are office hours?")
+        self.assertIn("appointment", result["answer"])
+
+    def test_no_required_textbook(self):
+        result = syllabus_fact_answer(self.pages, "What textbook do we need?")
+        self.assertIn("not required", result["answer"])
+
+    def test_category_grade_is_30_percent(self):
+        result = category_grading_answer(self.pages, "How much are exams worth?")
+        self.assertIn("30%", result["answer"])
+
+    def test_uncertain_individual_exam_weight_is_not_inferred(self):
+        self.assertIsNone(category_grading_answer(self.pages, "How much is Exam 1 worth?"))
+
+    def test_late_policy_page_is_found(self):
+        result = rank_syllabus_pages(self.pages, "What is the late work policy?")
+        self.assertTrue(result)
+        self.assertTrue(any("page 6" in entry["title"] or "page 5" in entry["title"] for _, entry in result))
+
+    def test_unknown_personal_phone_is_not_guessed(self):
+        self.assertIsNone(syllabus_fact_answer(self.pages, "What is my professor's personal cell phone number?"))
 
 
 if __name__ == "__main__":
