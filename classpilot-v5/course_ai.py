@@ -155,6 +155,17 @@ def rank_syllabus_pages(pages, question, limit=3):
                 score += 15
             if ("late" in q or "extension" in q) and "late" in lower:
                 score += 8
+            # Rank answers about durations and makeup rules by the complete
+            # concept expressed in the document, not just the word "exam".
+            if re.search(r"\b(?:exam|midterm|test)\b", q):
+                if re.search(r"\b(?:how long|duration|minutes?|time limit)\b", q):
+                    if re.search(r"\b\d+\s*[- ]\s*minutes?\b|\btime limit\b|\bduration\b", lower):
+                        score += 45
+                if re.search(r"\b(?:make\s*up|makeup|missed|absent|reschedule)\b", q):
+                    if re.search(r"\b(?:no\s+)?make\s*[- ]?up\s+exams?\b|\b(?:no\s+)?makeup\s+exams?\b", lower):
+                        score += 55
+                    elif re.search(r"\b(?:excused absence|exam retake|rescheduled exam)\b", lower):
+                        score += 15
         title = f"Official Syllabus · page {index+1}"
         candidates.append((score, index, passage, {"title": title, "answer": passage, "kind": "official_syllabus"}))
     candidates.sort(key=lambda entry: (-entry[0], entry[1]))
