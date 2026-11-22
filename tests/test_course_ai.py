@@ -5,7 +5,7 @@ import io
 import json
 from pathlib import Path
 
-from course_ai import grading_answer, category_grading_answer, grading_table_answer, rank_syllabus_pages, _clean_model_answer, _schedule_excerpt_answer, rank_materials, keyword_answer, syllabus_fact_answer, local_answer
+from course_ai import grading_answer, category_grading_answer, grading_table_answer, unspecified_individual_exam_weight, rank_syllabus_pages, _clean_model_answer, _schedule_excerpt_answer, rank_materials, keyword_answer, syllabus_fact_answer, local_answer
 
 GRADING_PAGE = """iClicker profile
 Grading Policy
@@ -367,6 +367,50 @@ class EvidenceRetrievalAndOutputTests(unittest.TestCase):
             result = local_answer("What's due in week 10?", matches)
         self.assertEqual(result["answer"], "Exam 2 is due 11/1 at 11:59pm.")
         self.assertEqual(result["mode"], "ollama")
+
+
+
+
+class ReasoningAndGradeEvidenceRegressionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.pages = json.loads((Path(__file__).resolve().parents[1] / "sample_finp235_pages.json").read_text(encoding="utf-8"))
+
+    def test_no_separate_final_exam_weight(self):
+        result = unspecified_individual_exam_weight(self.pages, "How much is my final exam worth?")
+        self.assertIsNotNone(result)
+        self.assertIn("30%", result["answer"])
+        self.assertIn("does not specify a separate weight", result["answer"])
+        self.assertEqual(result["sources"], ["Official Syllabus · page 5 · Grading table"])
+
+    def test_grade_passages_rank_actual_grading_table(self):
+        hits = rank_syllabus_pages(self.pages, "How much is my final exam worth?")
+        self.assertEqual(hits[0][1]["title"], "Official Syllabus · page 5")
+        self.assertIn("Exams: 30%", hits[0][1]["answer"])
+        titles = [v["title"] for _, v in hits]
+        self.assertEqual(len(titles), len(set(titles)))
+
+    def test_explicit_exam_weight_remains_available(self):
+        self.assertIn("25%", grading_answer(PAGES, "How much is my final exam worth?")["answer"])
+        self.assertIsNone(unspecified_individual_exam_weight(PAGES, "How much is my final exam worth?"))
+
+    def test_reasoning_screenshot_is_not_exposed(self):
+        raw = "I need to check the evidence provided to find the answer. First, I'll look at the evidence. Wait, the question is about the final exam's weight. The user might be confused because the evidence provided is incomplete."
+        self.assertEqual(_clean_model_answer(raw), "")
+
+    def test_reasoning_only_is_rejected(self):
+        self.assertEqual(_clean_model_answer("The user might be confused between the final grade"), "")
+
+    def test_plain_answer_remains(self):
+        self.assertEqual(_clean_model_answer("Reflection Video is worth 10% of the overall grade."), "Reflection Video is worth 10% of the overall grade.")
+
+    def test_reasoning_returns_source_week_instead(self):
+        matches = [e for _, e in rank_syllabus_pages(self.pages, "What's due in Week 10?")]
+        fake = io.BytesIO(json.dumps({"message": {"content": "The user might be confused. I need to check the evidence."}}).encode())
+        with patch("course_ai.urllib.request.urlopen", return_value=fake):
+            answer = local_answer("What's due in Week 10?", matches)
+        self.assertEqual(answer["mode"], "source_excerpt")
+        self.assertIn("Exam 2", answer["answer"])
 
 
 
