@@ -485,42 +485,55 @@ def keyword_answer(question, matches):
 
 
 def _clean_model_answer(raw):
-    """Remove model thinking, untagged planning and structural wrappers."""
-    text = str(raw or "").strip()
+    """Never send internal planning/reasoning text to the student's chat."""
+    text = str(raw or "").strip().strip('"')
     text = re.sub(r"(?is)<think\b[^>]*>.*?</think\s*>", "", text).strip()
-    if re.search(r"(?i)<think\b", text):
-        return ""  # unfinished thinking is not an answer
-    # Qwen may emit ChatML reasoning delimiters in the visible response.
+    if re.search(r"(?i)<think\b|<\|im_start\|>assistant\s+channel=analysis|<\|channel\|>analysis", text):
+        return ""  # incomplete or exposed internal reasoning
     if "[/INST]" in text:
         text = text.rsplit("[/INST]", 1)[-1].strip()
-    if "final answer:" in text.casefold():
-        text = re.split(r"(?i)final answer\s*:", text)[-1].strip()
-    elif re.search(r"(?im)^answer\s*:", text):
-        text = re.split(r"(?im)^answer\s*:", text)[-1].strip()
     if text.startswith("{"):
         try:
-            obj = json.loads(text)
-            text = str(obj.get("answer", "")) if isinstance(obj, dict) else ""
+            value = json.loads(text)
+            text = str(value.get("answer", "")) if isinstance(value, dict) else ""
         except ValueError:
             return ""
-    # Remove only planning commentary, not a student's answer.
-    preamble = re.compile(
+    explicit = re.search(r"(?im)(?:^|\n)\s*(?:final answer|answer)\s*:\s*", text)
+    if explicit:
+        text = text[explicit.end():].strip()
+    # Some older Ollama/Qwen builds ignore think=False and put a few
+    # reasoning sentences before the actual answer, without <think> tags.
+    # Remove only narrowly recognizable leading sentences.
+    beginning = re.compile(
         r"(?is)^\s*(?:"
-        r"okay[,.\s]+(?:the user|let me|we need|i need)[^.?!\n]*[.?!]\s*|"
-        r"(?:the user (?:is asking|wants|asked)|let me (?:check|look|think)|"
-        r"i (?:need|should|will) (?:check|look|find)|we need to (?:check|find))"
-        r"[^.?!\n]*[.?!]\s*|"
-        r"(?:analysis|reasoning)\s*:\s*[^\n]*\n+"
+        r"(?:okay[,.\s]+)?the user (?:is asking|wants|asked)[^.?!\n]*[.?!]\s*|"
+        r"(?:okay[,.\s]+)?let me (?:check|look|think)[^.?!\n]*[.?!]\s*|"
+        r"(?:i need to|we need to) (?:check|find|look)[^.?!\n]*[.?!]\s*"
         r")"
     )
     for _ in range(5):
-        updated = preamble.sub("", text, count=1).strip()
+        updated = beginning.sub("", text, count=1).strip()
         if updated == text:
             break
         text = updated
-    if re.match(r"(?i)^(?:okay[,.\s]+the user|let me check|we need to|the user is asking|analysis:|reasoning:)", text):
-        return ""  # no verified final answer in the response
-    return text[:1000].strip()
+    # Reject any remaining untagged internal deliberation. Displaying no
+    # model answer is preferable to displaying a false or confusing chain.
+    thought = re.compile(
+        r"(?i)\b(?:"
+        r"the user (?:might|may|is asking|wants|asked|could be)|"
+        r"i (?:need|should|will|have) to (?:check|look|reason|find|decide)|"
+        r"let me (?:check|look|think|reason)|"
+        r"first[,.:]?\s+i(?:'ll| will) (?:look|check|analyze)|"
+        r"wait[,.:]?\s+(?:the|this|i)|"
+        r"the evidence (?:provided|doesn't|does not)|"
+        r"the question is (?:about|asking)|"
+        r"the excerpts? (?:mention|show|talk|provide)|"
+        r"analysis:|reasoning:"
+        r")\b"
+    )
+    if thought.search(text):
+        return ""
+    return text[:750].strip()
 
 
 def _schedule_excerpt_answer(question, matches):
