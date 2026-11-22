@@ -88,6 +88,8 @@ def _syllabus_passages(pages):
     Source pages remain attached to each excerpt for traceable answers.
     """
     for index, page in enumerate(pages):
+        # PDF text extraction commonly inserts nonbreaking spaces in dates.
+        page = page.replace("\u00a0", " ")
         # Weeks often cross PDF pages or include multiple assignments.
         # Capture each week's full section before generic passage splitting.
         week_headers = list(re.finditer(r"(?im)^\s*Week\s+(\d{1,2})\s*\([^\n]*\)\s*:", page))
