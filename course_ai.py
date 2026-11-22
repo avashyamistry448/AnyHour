@@ -159,7 +159,7 @@ def rank_syllabus_pages(pages, question, limit=3):
             # concept expressed in the document, not just the word "exam".
             if re.search(r"\b(?:exams?|midterms?|tests?)\b", q):
                 if re.search(r"\b(?:how long|duration|minutes?|time limit)\b", q):
-                    if re.search(r"\b\d+\s*[- ]\s*minutes?\b|\btime limit\b|\bduration\b", lower):
+                    if re.search(r"\b\d+\s*[- ]\s*minute|\btime limit\b|\bduration\b", lower):
                         score += 45
                 if re.search(r"\b(?:make\s*up|makeup|missed|absent|reschedule)\b", q):
                     if re.search(r"\b(?:no\s+)?make\s*[- ]?up\s+exams?\b|\b(?:no\s+)?makeup\s+exams?\b", lower):
