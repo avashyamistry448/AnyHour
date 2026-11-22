@@ -169,6 +169,51 @@ def rank_materials(rows, question, limit=4):
     return [entry for _, entry in candidates[:limit]]
 
 
+def syllabus_fact_answer(pages, question):
+    """Direct answers to well-structured facts printed in the official syllabus."""
+    q = question.casefold()
+    patterns = (
+        (r"\b(?:professor|instructor|teacher|lecturer|who teaches)\b", "instructor"),
+        (r"\b(?:email|contact address)\b", "email"),
+        (r"\b(?:office hours|meet|appointment)\b", "office_hours"),
+        (r"\b(?:textbook|required book|books? required)\b", "textbook"),
+    )
+    intent = next((name for pattern, name in patterns if re.search(pattern, q)), None)
+    if not intent:
+        return None
+    if re.search(r"\b(?:personal|private|cell|mobile|phone|telephone)\b", q):
+        return None
+
+    for page_index, page in enumerate(pages):
+        normalized = re.sub(r"\r\n?", "\n", page)
+        answer = None
+        if intent == "instructor":
+            m = re.search(r"(?im)^\s*Instructor Details\s*\n\s*([^\n]{3,100})", normalized)
+            if m:
+                candidate = m.group(1).strip()
+                if not re.search(r"(?i)^(?:email|phone|office|class|section)", candidate):
+                    answer = f"Your instructor is {candidate}."
+        elif intent == "email":
+            m = re.search(r"(?im)^\s*Email:\s*([^\s\n]+@[^\s\n]+)", normalized)
+            if m:
+                answer = f"Your instructor's email is {m.group(1)}."
+        elif intent == "office_hours":
+            m = re.search(r"(?im)^\s*Office Hours\s*\n\s*([^\n]{3,120})", normalized)
+            if m:
+                hours = m.group(1).strip()
+                answer = f"Office hours are {hours.lower()}." if hours.casefold() == "by appointment" else f"Office hours: {hours}."
+        elif intent == "textbook":
+            if re.search(r"(?i)\ba textbook is not required\b", normalized):
+                answer = "A textbook is not required for this course."
+        if answer:
+            return {
+                "answer": answer,
+                "sources": [f"Official Syllabus · page {page_index + 1}"],
+                "mode": "verified_fact",
+            }
+    return None
+
+
 def keyword_answer(question, matches):
     """Extract a supported answer from the best relevant line across all sources.
 
@@ -210,7 +255,11 @@ def keyword_answer(question, matches):
     for source_index, source in enumerate(matches):
         excerpt = source.get("answer", "")
         lines = [re.sub(r"\s+", " ", line).strip(" -:\t") for line in excerpt.splitlines()]
-        for index, line in enumerate(lines):
+        expanded = list(lines)
+        for i, line in enumerate(lines[:-1]):
+            if re.fullmatch(r"(?i)(?:instructor details|instructor|office hours)", line):
+                expanded.append(line + ": " + lines[i + 1])
+        for index, line in enumerate(expanded):
             if not 14 <= len(line) <= 320:
                 continue
             common = _terms(line) & tokens
