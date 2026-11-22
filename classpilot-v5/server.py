@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlsplit
-from course_ai import grading_answer, category_grading_answer, grading_table_answer, rank_syllabus_pages, rank_materials, syllabus_fact_answer, local_answer, ollama_available
+from course_ai import grading_answer, category_grading_answer, grading_table_answer, unspecified_individual_exam_weight, rank_syllabus_pages, rank_materials, syllabus_fact_answer, local_answer, ollama_available
 
 ROOT=Path(__file__).resolve().parent
 DB=ROOT/'classpilot.db'
@@ -104,6 +104,9 @@ def search_answer(c,cid,question):
     table_fact=grading_table_answer(official_pages, question) if official else None
     if table_fact:
         return table_fact
+    individual_limit=unspecified_individual_exam_weight(official_pages, question) if official else None
+    if individual_limit:
+        return individual_limit
     direct=syllabus_fact_answer(official_pages, question) if official else None
     if direct:
         return direct
