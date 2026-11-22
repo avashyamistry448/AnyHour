@@ -279,7 +279,7 @@ def keyword_answer(question, matches):
             if source.get("kind") == "official_syllabus":
                 score += 3
             # Very short generic headings are poor direct answers.
-            if len(line.split()) <= 3:
+            if len(line.split()) <= 3 and not re.search(r"(?i)^(?:instructor|professor|email|office hours?|exams?|assignments?|textbooks?|required book)\s*:", line):
                 score -= 5
             candidates.append((score, -source_index, -index, line, source["title"]))
     if not candidates:
