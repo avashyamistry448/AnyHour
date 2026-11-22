@@ -14,8 +14,24 @@ _STOP = {
 }
 
 
+# Equivalent question wording should retrieve the same syllabus passages.
+# Only use concept synonyms here; never fabricate answers.
+_ALIASES = {
+    "professor": "instructor", "teacher": "instructor", "lecturer": "instructor",
+    "textbook": "book", "textbooks": "book", "books": "book",
+    "homework": "assignment", "assignments": "assignment",
+    "quizzes": "quiz", "exams": "exam", "tests": "exam",
+    "deadlines": "due", "deadline": "due", "submitted": "submit",
+    "submission": "submit", "grading": "grade", "grades": "grade",
+    "mandatory": "required", "compulsory": "required",
+    "attendance": "attend", "attending": "attend",
+    "sick": "illness", "ill": "illness",
+}
+
+
 def _terms(text):
-    return set(re.findall(r"[a-z0-9]{3,}", text.casefold())) - _STOP
+    words = set(re.findall(r"[a-z0-9]{3,}", text.casefold())) - _STOP
+    return { _ALIASES.get(word, word) for word in words }
 
 
 def _exam_label(question):
@@ -154,42 +170,62 @@ def rank_materials(rows, question, limit=4):
 
 
 def keyword_answer(question, matches):
-    """Provide a short, cited direct quote from retrieved evidence.
+    """Extract a supported answer from the best relevant line across all sources.
 
-    This is intentionally extractive: no model call or invented interpretation.
+    Quotes are deliberately not generated or paraphrased. When a question asks
+    for an unsupported fact, return None instead of an unrelated syllabus line.
     """
-    query = question.casefold()
+    q = question.casefold()
     tokens = _terms(question)
-    for source in matches:
+    if not tokens:
+        return None
+    # Intent terms stop a match on generic words such as "course" or "exam".
+    intents = [
+        (r"\b(?:office\s+hours?|meet|appointment|available)\b",
+         r"\b(?:office\s+hours?|appointment|meeting)\b"),
+        (r"\b(?:email|contact)\b", r"\b(?:email|contact|@)\b"),
+        (r"\b(?:professor|instructor|teacher|lecturer|teaches)\b",
+         r"\b(?:professor|instructor|lecturer|taught\s+by)\b"),
+        (r"\b(?:textbooks?|books?|reading)\b",
+         r"\b(?:textbooks?|books?|reading|isbn|required\s+materials)\b"),
+        (r"\b(?:late|extension|penalt)\w*\b",
+         r"\b(?:late|extension|penalt)\w*\b"),
+        (r"\b(?:due|deadline|submit|submission)\b",
+         r"\b(?:due|deadline|submit|submitted|submission)\b"),
+        (r"\b(?:exams?|final|midterm|quizzes?|tests?)\b",
+         r"\b(?:exams?|final|midterm|quizzes?|tests?)\b"),
+        (r"\b(?:attendance|attend|mandatory)\b",
+         r"\b(?:attendance|attend|required|mandatory)\b"),
+    ]
+    required = [pattern for trigger, pattern in intents if re.search(trigger, q)]
+    # Don't treat every generic word as an intent trigger.
+    candidates = []
+    for source_index, source in enumerate(matches):
         excerpt = source.get("answer", "")
         lines = [re.sub(r"\s+", " ", line).strip(" -:\t") for line in excerpt.splitlines()]
-        scored = []
-        for i, line in enumerate(lines):
-            if not 12 <= len(line) <= 350:
+        for index, line in enumerate(lines):
+            if not 14 <= len(line) <= 320:
                 continue
-            shared = len(_terms(line) & tokens)
-            if not shared:
+            common = _terms(line) & tokens
+            if not common:
                 continue
-            score = shared * 3
-            if re.search(r"\boffice\s+hours?\b", query) and re.search(r"\boffice\s+hours?\b", line, re.I):
-                score += 7
-            if re.search(r"\b(?:due|deadline|submit)\b", query) and re.search(r"\b(?:due|deadline|submitted)\b", line, re.I):
-                score += 6
-            if re.search(r"\b(?:exam|final|grade|weight|worth)\b", query) and re.search(r"\b(?:exam|final|grade|weight|%)\b", line, re.I):
-                score += 5
-            # Ignore lines that are just a section title or navigation marker.
-            if line.endswith((":", ".")) and len(line) < 25:
-                score -= 4
-            scored.append((score, i, line))
-        if scored:
-            score, _, best = max(scored, key=lambda item: item[0])
-            if score >= 3:
-                return {
-                    "answer": best,
-                    "sources": [source["title"]],
-                    "mode": "keyword",
-                }
-    return None
+            if required and not any(re.search(pattern, line, re.I) for pattern in required):
+                continue
+            score = 4 * len(common)
+            if re.search(r"\b(?:\d{1,2}:\d{2}|\d{1,2}\s*[ap]\.?m\.?|%|@|\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b)\b", line, re.I):
+                score += 2
+            if source.get("kind") == "official_syllabus":
+                score += 3
+            # Very short generic headings are poor direct answers.
+            if len(line.split()) <= 3:
+                score -= 5
+            candidates.append((score, -source_index, -index, line, source["title"]))
+    if not candidates:
+        return None
+    score, _, _, answer, title = max(candidates)
+    if score < 4:
+        return None
+    return {"answer": answer, "sources": [title], "mode": "keyword"}
 
 
 def local_answer(question, matches):
