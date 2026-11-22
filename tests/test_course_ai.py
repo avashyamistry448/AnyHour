@@ -5,7 +5,7 @@ import io
 import json
 from pathlib import Path
 
-from course_ai import grading_answer, category_grading_answer, rank_syllabus_pages, rank_materials, keyword_answer, syllabus_fact_answer, local_answer
+from course_ai import grading_answer, category_grading_answer, grading_table_answer, rank_syllabus_pages, rank_materials, keyword_answer, syllabus_fact_answer, local_answer
 
 GRADING_PAGE = """iClicker profile
 Grading Policy
@@ -247,6 +247,67 @@ class FinancialPlanningSyllabusTests(unittest.TestCase):
 
     def test_unknown_personal_phone_is_not_guessed(self):
         self.assertIsNone(syllabus_fact_answer(self.pages, "What is my professor's personal cell phone number?"))
+
+
+class GenericGradingTableTests(unittest.TestCase):
+    """Test discovered grading categories against real and synthetic syllabi."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.finp = json.loads(
+            (Path(__file__).resolve().parents[1] / "sample_finp235_pages.json")
+            .read_text(encoding="utf-8")
+        )
+
+    def test_reflection_video_from_real_syllabus(self):
+        result = grading_table_answer(self.finp, "How much is the reflection video worth?")
+        self.assertEqual(result["answer"], "Reflection Video is worth 10% of your overall grade.")
+        self.assertEqual(result["sources"], ["Official Syllabus · page 5 · Grading table"])
+
+    def test_other_categories_from_real_syllabus(self):
+        cases = (
+            ("How much are module quizzes worth?", "Module Quizzes", "30%"),
+            ("What percentage are assignments worth?", "Assignments", "30%"),
+            ("How much is extra credit worth?", "Extra Credit", "5%"),
+            ("What percentage does the reflection video contribute?", "Reflection Video", "10%"),
+        )
+        for question, category, value in cases:
+            with self.subTest(question=question):
+                result = grading_table_answer(self.finp, question)
+                self.assertIsNotNone(result)
+                self.assertIn(category, result["answer"])
+                self.assertIn(value, result["answer"])
+
+    def test_new_course_and_unseen_labels(self):
+        pages = ["Grading Policy",
+                 "Research Portfolio: 42%\nSeminar Participation: 18%\nWeekly Exercises: 40%\nTotal: 100%"]
+        result = grading_table_answer(pages, "What percentage is the research portfolio?")
+        self.assertEqual(result["answer"], "Research Portfolio is worth 42% of your overall grade.")
+        self.assertEqual(result["sources"], ["Official Syllabus · page 2 · Grading table"])
+
+    def test_preserves_points_when_given(self):
+        result = grading_table_answer(PAGES, "How much is homework worth?")
+        self.assertIn("10%", result["answer"])
+        self.assertIn("100 points", result["answer"])
+
+    def test_individual_exam_not_derived_from_total(self):
+        self.assertIsNone(grading_table_answer(self.finp, "What is Exam 1 worth?"))
+        self.assertIsNone(grading_table_answer(self.finp, "What is the final exam worth?"))
+
+    def test_grade_scale_and_schedule_not_mistaken_for_weights(self):
+        pages = ["Final Exam scores: 85%\nExam 1 scores: 70%\nExam 2 scores: 75%",
+                 "Grading Scale\nA: 90%\nB: 80%\nC: 70%\nTotal: 100%"]
+        self.assertIsNone(grading_table_answer(pages, "How much is the final exam worth?"))
+
+    def test_date_question_does_not_get_weight(self):
+        self.assertIsNone(grading_table_answer(self.finp, "When is the reflection video due?"))
+
+    def test_missing_component_does_not_invent_weight(self):
+        self.assertIsNone(grading_table_answer(self.finp, "How much is the textbook worth?"))
+
+    def test_ambiguous_category_does_not_guess(self):
+        pages = ["Grading Policy\nFinal Project: 20%\nResearch Project: 30%\nParticipation: 50%\nTotal: 100%"]
+        self.assertIsNone(grading_table_answer(pages, "How much is the project worth?"))
 
 
 if __name__ == "__main__":
