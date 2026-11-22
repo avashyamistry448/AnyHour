@@ -198,6 +198,13 @@ def keyword_answer(question, matches):
          r"\b(?:attendance|attend|required|mandatory)\b"),
     ]
     required = [pattern for trigger, pattern in intents if re.search(trigger, q)]
+    asks_for_phone = bool(re.search(r"\b(?:phone|telephone|mobile|cell)\b", q))
+    asks_for_weight = bool(re.search(r"\b(?:worth|weight|percent|percentage|how much)\b", q))
+    asks_for_date = bool(re.search(r"\b(?:when|due|deadline|date|time)\b", q))
+    # Office-hours requests can refer to the professor without requiring their
+    # name on the same line as the meeting schedule.
+    if re.search(r"\b(?:office\s+hours?|meet|appointment)\b", q):
+        required = [r"\b(?:office\s+hours?|appointment|meeting)\b"]
     # Don't treat every generic word as an intent trigger.
     candidates = []
     for source_index, source in enumerate(matches):
@@ -209,7 +216,13 @@ def keyword_answer(question, matches):
             common = _terms(line) & tokens
             if not common:
                 continue
-            if required and not any(re.search(pattern, line, re.I) for pattern in required):
+            if required and not all(re.search(pattern, line, re.I) for pattern in required):
+                continue
+            if asks_for_phone and not re.search(r"\b(?:phone|telephone|mobile|cell)\b", line, re.I):
+                continue
+            if asks_for_weight and not re.search(r"\d+(?:\.\d+)?\s*%|\b(?:points?|weight)\b", line, re.I):
+                continue
+            if asks_for_date and not re.search(r"\b(?:due|deadline|submit|time|date|hours?|appointment|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|\d{1,2}[:/]\d{1,2}|\d{1,2}\s*[ap]\.?m\.?", line, re.I):
                 continue
             score = 4 * len(common)
             if re.search(r"\b(?:\d{1,2}:\d{2}|\d{1,2}\s*[ap]\.?m\.?|%|@|\b(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b)\b", line, re.I):
