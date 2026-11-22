@@ -142,5 +142,70 @@ class OllamaRecoveryTests(unittest.TestCase):
 
 
 
+class CommonStudentQuestionTests(unittest.TestCase):
+    def test_professor_synonym_retrieves_instructor(self):
+        pages = ["Course overview", "Instructor: Dr. Rivera\nEmail: rivera@example.edu"]
+        matches = rank_syllabus_pages(pages, "Who is my professor?")
+        self.assertEqual(matches[0][1]["title"], "Official Syllabus · page 2")
+        answer = keyword_answer("Who is my professor?", [matches[0][1]])
+        self.assertIn("Dr. Rivera", answer["answer"])
+
+    def test_textbook_synonym_retrieves_book(self):
+        pages = ["Required Book: Fundamentals of Chemistry, ISBN 1234567890"]
+        matches = rank_syllabus_pages(pages, "What textbook do we need?")
+        self.assertTrue(matches)
+        answer = keyword_answer("What textbook do we need?", [matches[0][1]])
+        self.assertIn("Fundamentals of Chemistry", answer["answer"])
+
+    def test_office_hours_are_extractable(self):
+        materials = [{"title": "Course details", "body": "Instructor: Dr. Rivera\nOffice Hours: Tuesdays at 2 PM in Room 130.", "kind": "document"}]
+        result = rank_materials(materials, "When can I meet my professor?")
+        self.assertTrue(result)
+        answer = keyword_answer("When are office hours?", result)
+        self.assertIn("Tuesdays at 2 PM", answer["answer"])
+
+    def test_deadline_paraphrase_retrieves_due_date(self):
+        rows = [{"title": "Course calendar", "body": "Assignments must be submitted by Sunday 11:59 PM.", "kind": "document"}]
+        matches = rank_materials(rows, "When is homework due?")
+        self.assertTrue(matches)
+        self.assertIn("Sunday", matches[0]["answer"])
+
+    def test_across_sources_choose_relevant_line(self):
+        matches = [
+            {"title": "Other notes", "kind": "document", "answer": "The final exam will occur in December."},
+            {"title": "Official Syllabus · page 2", "kind": "official_syllabus",
+             "answer": "Exams are worth 30% of the total grade."},
+        ]
+        answer = keyword_answer("How much are exams worth?", matches)
+        self.assertIn("30%", answer["answer"])
+
+    def test_missing_private_contact_does_not_invent(self):
+        matches = [{"title": "Syllabus", "kind": "official_syllabus",
+                    "answer": "Instructor: Dr. Rivera\nCourse title: Chemistry."}]
+        answer = keyword_answer("What is the professor's personal phone number?", matches)
+        self.assertIsNone(answer)
+
+    def test_missing_date_does_not_return_unrelated_course_line(self):
+        matches = [{"title": "Notes", "kind": "document",
+                    "answer": "Final exams are important learning milestones."}]
+        answer = keyword_answer("When is the final exam due?", matches)
+        self.assertIsNone(answer)
+
+    def test_many_questions_have_relevant_keyword_matches(self):
+        sample = [
+            ("When are office hours?", "Office Hours: Mondays at 3 PM."),
+            ("Who is my professor?", "Instructor: Dr. Rivera"),
+            ("What textbook is required?", "Required Book: Chemistry Fundamentals"),
+            ("Are late assignments accepted?", "Late assignments are accepted with a 10% penalty."),
+            ("How much are exams worth?", "Exams: 30% of final grade."),
+            ("Is attendance mandatory?", "Attendance is required in every lab."),
+        ]
+        for question, line in sample:
+            with self.subTest(question=question):
+                item = {"title": "Official Syllabus · page 1", "kind": "official_syllabus",
+                        "answer": line}
+                self.assertIsNotNone(keyword_answer(question, [item]))
+
+
 if __name__ == "__main__":
     unittest.main()
