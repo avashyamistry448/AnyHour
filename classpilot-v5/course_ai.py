@@ -81,41 +81,87 @@ def grading_answer(pages, question):
     return None
 
 
+def _syllabus_passages(pages):
+    """Build page-cited passages from document structure, not canned answers.
+
+    Split course schedules by week and other pages by paragraph/line windows.
+    Source pages remain attached to each excerpt for traceable answers.
+    """
+    for index, page in enumerate(pages):
+        # Weeks often cross PDF pages or include multiple assignments.
+        # Capture each week's full section before generic passage splitting.
+        week_headers = list(re.finditer(r"(?im)^\s*Week\s+(\d{1,2})\s*\([^\n]*\)\s*:", page))
+        if not week_headers:
+            week_headers = list(re.finditer(r"(?im)^\s*Week\s+(\d{1,2})\s*\(", page))
+        covered = []
+        for j, match in enumerate(week_headers):
+            stop = week_headers[j+1].start() if j + 1 < len(week_headers) else min(
+                len(page), match.start() + 1900
+            )
+            # Do not pull unrelated technology or policy text after a schedule.
+            block = page[match.start():stop]
+            block = re.split(r"(?im)^\s*(?:Technology Support|University Policies|Course Schedule)\s*$", block, maxsplit=1)[0]
+            covered.append((match.start(), match.start()+len(block)))
+            if block.strip():
+                yield index, block.strip(), int(match.group(1))
+        # Preserve coherent local evidence around keywords for all other questions.
+        # Fixed *overlapping* windows ensure a paragraph near a boundary is seen.
+        # Use full pages for very short pages (e.g. a grading table).
+        if not week_headers:
+            for start in range(0, len(page), 650):
+                snippet = page[start:start + 1350].strip()
+                if snippet:
+                    yield index, snippet, None
+        else:
+            # Also index non-week regions, like introductory pages or policies.
+            preceding = page[:week_headers[0].start()].strip()
+            if preceding:
+                for start in range(0, len(preceding), 650):
+                    snippet = preceding[start:start+1350].strip()
+                    if snippet:
+                        yield index, snippet, None
+
+
 def rank_syllabus_pages(pages, question, limit=3):
-    """Page-aware keyword search with grading-section boosts and short excerpts."""
+    """Rank cited document *passages* including exact week-number matching."""
     q = question.casefold()
     terms = _terms(question)
+    week = re.search(r"\bweek\s*(\d{1,2})\b", q)
+    target_week = int(week.group(1)) if week else None
     grade_query = bool(re.search(r"\b(?:grade|grading|worth|weight|points?|percent|final|exam\s*[12])\b", q))
     candidates = []
-    for index, page in enumerate(pages):
-        lower = page.casefold()
-        words = _terms(lower)
-        overlap = len(terms & words)
-        score = overlap
-        if grade_query and re.search(r"grading\s+policy", lower):
-            score += 24
-        if grade_query and re.search(r"percentage\s+of\s+overall\s+grade|point\s+distribution", lower):
-            score += 16
-        if "office" in q and "office hours" in lower:
-            score += 12
-        if ("late" in q or "extension" in q) and "late work policy" in lower:
-            score += 12
-        if not score:
-            continue
-        # Preserve exact page references and table line breaks.
-        if grade_query and "grading policy" in lower:
-            start = lower.find("grading policy")
+    for index, passage, week_no in _syllabus_passages(pages):
+        lower = passage.casefold()
+        found = terms & _terms(passage)
+        if target_week is not None:
+            # A question about Week 10 must never select Week 1 simply
+            # because the word "week" or a generic "due" token overlaps.
+            if week_no != target_week:
+                continue
+            score = 100 + 4 * len(found)
         else:
-            locations = [lower.find(t) for t in terms if lower.find(t) >= 0]
-            start = max(0, (min(locations) - 120) if locations else 0)
-        snippet = page[start:start + 2100].strip()
-        candidates.append((score, index, {
-            "title": f"Official Syllabus · page {index + 1}",
-            "answer": snippet,
-            "kind": "official_syllabus",
-        }))
-    candidates.sort(key=lambda item: (-item[0], item[1]))
-    return [(score, entry) for score, _, entry in candidates[:limit]]
+            if not found:
+                continue
+            score = 5 * len(found)
+            if grade_query and re.search(r"grading policy|grading breakdown|percentage of overall grade|course component", lower):
+                score += 25
+            if "office" in q and "office hours" in lower:
+                score += 15
+            if ("late" in q or "extension" in q) and "late" in lower:
+                score += 8
+        title = f"Official Syllabus · page {index+1}"
+        candidates.append((score, index, passage, {"title": title, "answer": passage, "kind": "official_syllabus"}))
+    candidates.sort(key=lambda entry: (-entry[0], entry[1]))
+    # Avoid using multiple overlapping passages from the same page unless
+    # their text is distinct; this leaves space for supplemental documents.
+    selected = []
+    for score, _, passage, entry in candidates:
+        if any(passage in previous or previous in passage for previous in [x[1]["answer"] for x in selected]):
+            continue
+        selected.append((score, entry))
+        if len(selected) >= limit:
+            break
+    return selected
 
 
 def category_grading_answer(pages, question):
